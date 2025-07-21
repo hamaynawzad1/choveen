@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "771058194814",
+    "project_id": "mohaf-9c8b0",
+    "storage_bucket": "mohaf-9c8b0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:771058194814:android:f380a89aac4eeb0b57fb2f",
+        "android_client_info": {
+          "package_name": "com.example.choveen.choveenapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDV_TFgcJ5UpSW9qnvLolomcxz3bOs_ATE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
