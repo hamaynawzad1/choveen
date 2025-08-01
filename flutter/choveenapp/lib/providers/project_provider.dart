@@ -1,358 +1,462 @@
-// lib/providers/project_provider.dart - FIXED JOIN LOGIC
-import 'package:flutter/material.dart';
-import '../core/services/api_service.dart';
-import '../core/constants/api_constants.dart';
-import '../models/project_model.dart';
-import '../models/suggestion_model.dart';
+// lib/providers/project_provider.dart
+import 'package:flutter/foundation.dart';
 import '../core/services/backend_service.dart';
 import '../core/services/ai_service.dart';
+import '../models/project_model.dart';
 
 class ProjectProvider extends ChangeNotifier {
-  final ApiService _apiService = ApiService();
   final BackendService _backendService = BackendService();
-  final EnhancedAIService _aiService = EnhancedAIService();
-  
+  final AIService _aiService = AIService();
+
+  List<Project> _projects = [];
+  List<Map<String, dynamic>> _suggestions = [];
+  bool _isLoading = false;
+  bool _isLoadingSuggestions = false;
+  String? _error;
   String? _currentUserId;
+  Project? _selectedProject;
+
+  // Getters
+  List<Project> get projects => _projects;
+  List<Map<String, dynamic>> get suggestions => _suggestions;
+  bool get isLoading => _isLoading;
+  bool get isLoadingSuggestions => _isLoadingSuggestions;
+  String? get error => _error;
+  Project? get selectedProject => _selectedProject;
   
-  // Initialize with user ID
-  void initializeForUser(String userId) {
+  List<Project> get activeProjects => _projects.where((p) => p.isActive).toList();
+  List<Project> get completedProjects => _projects.where((p) => p.isCompleted).toList();
+  List<Project> get pausedProjects => _projects.where((p) => p.isPaused).toList();
+  
+  int get totalProjects => _projects.length;
+  int get activeProjectsCount => activeProjects.length;
+  int get completedProjectsCount => completedProjects.length;
+
+  // ✅ Initialize project provider
+  Future<void> initialize(String userId) async {
     _currentUserId = userId;
-    fetchProjects();
-    fetchSuggestions();
+    await fetchProjects();
+    notifyListeners();
   }
-  
-  // ✅ FIXED: Fetch user-specific projects
+
+  // ✅ Fetch user projects
   Future<void> fetchProjects() async {
     if (_currentUserId == null) return;
     
     _setLoading(true);
     try {
-      // Try API first
-      try {
-        final response = await _apiService.get(ApiConstants.projects);
-        final List<dynamic> data = response['data'] ?? [];
-        _projects = data.map((json) => Project.fromJson(json)).toList();
-      } catch (e) {
-        // Fallback to local backend service
-        _projects = await _backendService.getUserProjects(_currentUserId!);
-      }
+      final projectsData = await _backendService.getUserProjects(_currentUserId!);
+      
+      _projects = projectsData.map((data) => Project.fromJson(data)).toList();
+      
+      // Sort by updated date (most recent first)
+      _projects.sort((a, b) {
+        final aDate = a.updatedAt ?? a.createdAt;
+        final bDate = b.updatedAt ?? b.createdAt;
+        return bDate.compareTo(aDate);
+      });
       
       _error = null;
-      print('✅ Loaded ${_projects.length} projects for user $_currentUserId');
+      print('✅ Loaded ${_projects.length} projects');
+      
     } catch (e) {
-      print('❌ Projects Error: $e');
       _error = e.toString();
-      _projects = [];
+      print('❌ Error fetching projects: $e');
     } finally {
       _setLoading(false);
     }
   }
 
-  // ✅ FIXED: Fetch team-based suggestions
-  Future<void> fetchSuggestions() async {
-    if (_currentUserId == null) return;
+  // ✅ Create new project
+  Future<bool> createProject({
+    required String title,
+    required String description,
+    required String category,
+    required List<String> requiredSkills,
+    String difficulty = 'intermediate',
+    String estimatedDuration = '4-6 weeks',
+  }) async {
+    if (_currentUserId == null) return false;
     
     _setLoading(true);
     try {
-      // Get team-based suggestions from backend service
-      _suggestions = await _backendService.getTeamSuggestions(_currentUserId!);
+      final projectData = {
+        'title': title,
+        'description': description,
+        'category': category,
+        'required_skills': requiredSkills,
+        'difficulty': difficulty,
+        'estimated_duration': estimatedDuration,
+      };
       
-      // If no suggestions, generate some
-      if (_suggestions.isEmpty) {
-        _suggestions = await _generateDefaultTeamSuggestions();
-      }
+      final result = await _backendService.createProject(_currentUserId!, projectData);
       
-      _error = null;
-      print('✅ Loaded ${_suggestions.length} team suggestions');
-    } catch (e) {
-      print('❌ Suggestions Error: $e');
-      _error = e.toString();
-      _suggestions = await _generateDefaultTeamSuggestions();
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // ✅ FIXED: Delete project with backend sync
-  Future<bool> deleteProject(String projectId) async {
-    if (projectId.trim().isEmpty || _currentUserId == null) {
-      _error = 'Invalid project ID or user';
-      notifyListeners();
-      return false;
-    }
-
-    try {
-      // Delete from backend service
-      final success = await _backendService.deleteProject(projectId, _currentUserId!);
-      
-      if (success) {
-        // Remove from local list
-        _projects.removeWhere((project) => project.id == projectId);
+      if (result['success'] == true) {
+        final newProject = Project.fromJson(result['project']);
+        _projects.insert(0, newProject); // Add at beginning
+        
         _error = null;
+        print('✅ Project created: $title');
         notifyListeners();
-        print('✅ Project deleted permanently: $projectId');
         return true;
       } else {
-        _error = 'You can only delete your own projects';
+        _error = result['message'] ?? 'Failed to create project';
         notifyListeners();
         return false;
       }
     } catch (e) {
-      print('❌ Delete project error: $e');
       _error = e.toString();
+      print('❌ Error creating project: $e');
       notifyListeners();
       return false;
-    }
-  }
-
-  // ✅ NEW: Generate team-based suggestions
-  Future<List<Suggestion>> _generateDefaultTeamSuggestions() async {
-    final teamProjects = [
-      {
-        'title': 'Creative Media Agency',
-        'description': 'Combine photography, videography, and graphic design skills to offer complete media solutions',
-        'skills': ['Photography', 'Videography', 'Graphic Design', 'Video Editing'],
-        'team_size': 4,
-      },
-      {
-        'title': 'Tech Solutions Team', 
-        'description': 'Build web and mobile applications with a full development team',
-        'skills': ['Flutter', 'Web Development', 'UI/UX Design', 'Backend Development'],
-        'team_size': 5,
-      },
-      {
-        'title': 'Digital Marketing Collective',
-        'description': 'Offer comprehensive digital marketing services with content creators and strategists',
-        'skills': ['Content Writing', 'Social Media', 'SEO', 'Graphic Design'],
-        'team_size': 4,
-      },
-    ];
-
-    return teamProjects.map((proj) => Suggestion.fromJson({
-      'id': 'sugg_${DateTime.now().millisecondsSinceEpoch}_${teamProjects.indexOf(proj)}',
-      'type': 'team_project',
-      'project': {
-        'id': 'team_${DateTime.now().millisecondsSinceEpoch}_${teamProjects.indexOf(proj)}',
-        'title': proj['title'],
-        'description': proj['description'],
-        'required_skills': proj['skills'],
-        'team_size': proj['team_size'],
-        'team_members': [],
-      },
-      'description': 'Build a ${proj['team_size']}-person professional team',
-      'match_score': 0.85 + (teamProjects.indexOf(proj) * 0.05),
-      'created_at': DateTime.now().toIso8601String(),
-    })).toList();
-  }
-
-  // ✅ FIXED: Join/Create project from suggestion
-  Future<bool> joinProject(String projectId, {String? projectTitle}) async {
-    if (projectId.trim().isEmpty || _currentUserId == null) {
-      _error = 'Invalid project or user';
-      notifyListeners();
-      return false;
-    }
-
-    try {
-      // For team suggestions, create new project
-      if (projectId.startsWith('team_')) {
-        final suggestion = _suggestions.firstWhere(
-          (s) => s.project?.id == projectId,
-          orElse: () => _suggestions.first,
-        );
-        
-        final newProject = await _backendService.createProject(
-          title: suggestion.project?.title ?? projectTitle ?? 'Team Project',
-          description: suggestion.project?.description ?? 'Team collaboration project',
-          requiredSkills: suggestion.project?.requiredSkills ?? [],
-          ownerId: _currentUserId!,
-          teamSize: suggestion.project?.teamSize ?? 1,
-        );
-        
-        if (newProject != null) {
-          _projects.insert(0, newProject);
-          notifyListeners();
-          print('✅ Created team project: ${newProject.title}');
-          return true;
-        }
-      }
-      
-      // Try API for regular projects
-      try {
-        final response = await _apiService.post(
-          '${ApiConstants.projects}/$projectId/join',
-          body: {'project_title': projectTitle},
-        );
-        
-        if (response['success'] == true) {
-          await fetchProjects();
-          return true;
-        }
-      } catch (e) {
-        // For demo/offline mode
-        if (projectId.contains('_')) {
-          await fetchProjects();
-          return true;
-        }
-      }
-      
-      return false;
-    } catch (e) {
-      print('❌ Join project error: $e');
-      _error = e.toString();
-      notifyListeners();
-      return false;
-    }
-  }
-
-
-  List<Project> _projects = [];
-  List<Suggestion> _suggestions = [];
-  Set<String> _deletedProjectIds = {};
-  bool _isLoading = false;
-  String? _error;
-
-  List<Project> get projects => _projects.where((p) => !_deletedProjectIds.contains(p.id)).toList();
-  List<Suggestion> get suggestions => _suggestions;
-  bool get isLoading => _isLoading;
-  String? get error => _error;
-
-  /// Refresh suggestions with new ideas
-  Future<void> refreshSuggestions() async {
-    print('🔄 Starting intelligent suggestion refresh...');
-    _setLoading(true);
-    try {
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final response = await _apiService.get('${ApiConstants.projectSuggestions}?refresh=$timestamp');
-      final List<dynamic> data = response['data'] ?? [];
-      _suggestions = data.map((json) => Suggestion.fromJson(json)).toList();
-      _error = null;
-      print('✅ Refreshed ${_suggestions.length} intelligent suggestions');
-    } catch (e) {
-      print('❌ Refresh suggestions error: $e');
-      _error = e.toString();
-      
-      // Generate new creative fallback suggestions
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final randomSuffix = timestamp % 1000;
-      
-      final creativeProjects = [
-        {
-          "titles": ["Innovation Lab Platform", "Creative Solutions Hub", "Future Tech Incubator"],
-          "descriptions": ["Build an experimental platform for innovative technology solutions", "Create a collaborative space for breakthrough innovation", "Develop a comprehensive innovation ecosystem"]
-        },
-        {
-          "titles": ["Smart Productivity Suite", "Intelligent Workflow Engine", "AI-Powered Optimizer"],
-          "descriptions": ["Design an intelligent system for optimal productivity", "Build smart automation for enhanced efficiency", "Create AI-driven workflow optimization"]
-        },
-        {
-          "titles": ["Strategic Intelligence Dashboard", "Business Analytics Hub", "Decision Support Platform"],
-          "descriptions": ["Develop sophisticated business intelligence tools", "Build comprehensive analytics solutions", "Create strategic decision-making platforms"]
-        }
-      ];
-      
-      _suggestions = List.generate(3, (index) {
-        final projectSet = creativeProjects[index % creativeProjects.length];
-        final titleIndex = (timestamp + index) % (projectSet["titles"]?.length ?? 1);
-        final descIndex = (timestamp + index) % (projectSet["descriptions"]?.length ?? 1);
-        final uniqueId = '$timestamp${index + 1}$randomSuffix';
-        
-        return Suggestion.fromJson({
-          "id": "creative_$uniqueId",
-          "type": "project",
-          "project": {
-            "id": "proj_creative_$uniqueId",
-            "title": projectSet["titles"]?[titleIndex] ?? "Creative Project",
-            "description": projectSet["descriptions"]?[descIndex] ?? "Innovative solution",
-            "required_skills": ["Innovation", "Technology", "Collaboration"]
-          },
-          "description": "Intelligent suggestion tailored for your skills and interests",
-          "match_score": 0.88 + (index * 0.02),
-          "created_at": DateTime.now().toIso8601String(),
-        });
-      });
-      
-      print('🎨 Generated ${_suggestions.length} creative fallback suggestions');
     } finally {
       _setLoading(false);
     }
   }
 
-  /// Search projects
-  List<Project> searchProjects(String query) {
-    if (query.trim().isEmpty) return projects;
+  // ✅ Update project
+  Future<bool> updateProject(String projectId, Map<String, dynamic> updateData) async {
+    if (_currentUserId == null) return false;
     
-    final queryLower = query.toLowerCase();
-    return projects.where((project) =>
-        project.title.toLowerCase().contains(queryLower) ||
-        project.description.toLowerCase().contains(queryLower) ||
-        project.requiredSkills.any((skill) => 
-            skill.toLowerCase().contains(queryLower))
-    ).toList();
+    _setLoading(true);
+    try {
+      final result = await _backendService.updateProject(_currentUserId!, projectId, updateData);
+      
+      if (result['success'] == true) {
+        final updatedProject = Project.fromJson(result['project']);
+        final index = _projects.indexWhere((p) => p.id == projectId);
+        
+        if (index != -1) {
+          _projects[index] = updatedProject;
+          
+          // Update selected project if it's the same one
+          if (_selectedProject?.id == projectId) {
+            _selectedProject = updatedProject;
+          }
+        }
+        
+        _error = null;
+        print('✅ Project updated: $projectId');
+        notifyListeners();
+        return true;
+      } else {
+        _error = result['message'] ?? 'Failed to update project';
+        notifyListeners();
+        return false;
+      }
+    } catch (e) {
+      _error = e.toString();
+      print('❌ Error updating project: $e');
+      notifyListeners();
+      return false;
+    } finally {
+      _setLoading(false);
+    }
   }
 
-  /// Get project by ID
-  Project? getProjectById(String projectId) {
+  // ✅ Delete project
+  Future<bool> deleteProject(String projectId) async {
+    if (_currentUserId == null) return false;
+    
+    _setLoading(true);
     try {
-      return projects.firstWhere((project) => project.id == projectId);
+      final result = await _backendService.deleteProject(_currentUserId!, projectId);
+      
+      if (result['success'] == true) {
+        _projects.removeWhere((p) => p.id == projectId);
+        
+        // Clear selected project if it was deleted
+        if (_selectedProject?.id == projectId) {
+          _selectedProject = null;
+        }
+        
+        _error = null;
+        print('✅ Project deleted: $projectId');
+        notifyListeners();
+        return true;
+      } else {
+        _error = result['message'] ?? 'Failed to delete project';
+        notifyListeners();
+        return false;
+      }
     } catch (e) {
+      _error = e.toString();
+      print('❌ Error deleting project: $e');
+      notifyListeners();
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // ✅ Get project by ID
+  Project? getProject(String projectId) {
+    try {
+      return _projects.firstWhere((p) => p.id == projectId);
+    } catch (e) {
+      print('❌ Project not found: $projectId');
       return null;
     }
   }
 
-  /// Get suggestion by ID
-  Suggestion? getSuggestionById(String suggestionId) {
-    try {
-      return _suggestions.firstWhere((suggestion) => suggestion.id == suggestionId);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /// Clear deleted projects list
-  void clearDeletedProjects() {
-    _deletedProjectIds.clear();
+  // ✅ Set selected project
+  void setSelectedProject(Project? project) {
+    _selectedProject = project;
     notifyListeners();
   }
 
-  /// Clear all data
-  void clearData() {
-    _projects.clear();
+  // ✅ Update project progress
+  Future<bool> updateProjectProgress(String projectId, double progress) async {
+    return await updateProject(projectId, {'progress': progress.clamp(0.0, 1.0)});
+  }
+
+  // ✅ Update project status
+  Future<bool> updateProjectStatus(String projectId, String status) async {
+    return await updateProject(projectId, {'status': status});
+  }
+
+  // ✅ Add team member to project
+  Future<bool> addTeamMember(String projectId, String memberId) async {
+    final project = getProject(projectId);
+    if (project == null) return false;
+    
+    if (!project.teamMembers.contains(memberId)) {
+      final updatedMembers = [...project.teamMembers, memberId];
+      return await updateProject(projectId, {'team_members': updatedMembers});
+    }
+    
+    return true;
+  }
+
+  // ✅ Remove team member from project
+  Future<bool> removeTeamMember(String projectId, String memberId) async {
+    final project = getProject(projectId);
+    if (project == null) return false;
+    
+    final updatedMembers = project.teamMembers.where((id) => id != memberId).toList();
+    return await updateProject(projectId, {'team_members': updatedMembers});
+  }
+
+  // ✅ Generate AI project suggestions
+  Future<void> generateSuggestions({
+    required List<String> userSkills,
+    List<String>? interests,
+    String difficulty = 'intermediate',
+  }) async {
+    _setLoadingSuggestions(true);
+    try {
+      final suggestions = await _aiService.generateProjectSuggestions(
+        userSkills: userSkills,
+        interests: interests,
+        difficulty: difficulty,
+      );
+      
+      _suggestions = suggestions;
+      _error = null;
+      
+      print('✅ Generated ${suggestions.length} project suggestions');
+      notifyListeners();
+      
+    } catch (e) {
+      _error = e.toString();
+      print('❌ Error generating suggestions: $e');
+      notifyListeners();
+    } finally {
+      _setLoadingSuggestions(false);
+    }
+  }
+
+  // ✅ Create project from suggestion
+  Future<bool> createProjectFromSuggestion(Map<String, dynamic> suggestion) async {
+    return await createProject(
+      title: suggestion['title'] ?? 'New Project',
+      description: suggestion['description'] ?? 'Project created from AI suggestion',
+      category: suggestion['category'] ?? 'General',
+      requiredSkills: List<String>.from(suggestion['required_skills'] ?? []),
+      difficulty: suggestion['difficulty'] ?? 'intermediate',
+      estimatedDuration: suggestion['estimated_duration'] ?? '4-6 weeks',
+    );
+  }
+
+  // ✅ Search projects
+  List<Project> searchProjects(String query) {
+    if (query.isEmpty) return _projects;
+    
+    final lowercaseQuery = query.toLowerCase();
+    return _projects.where((project) {
+      return project.title.toLowerCase().contains(lowercaseQuery) ||
+             project.description.toLowerCase().contains(lowercaseQuery) ||
+             project.category.toLowerCase().contains(lowercaseQuery) ||
+             project.requiredSkills.any((skill) => 
+                 skill.toLowerCase().contains(lowercaseQuery));
+    }).toList();
+  }
+
+  // ✅ Filter projects by category
+  List<Project> getProjectsByCategory(String category) {
+    return _projects.where((project) => 
+        project.category.toLowerCase() == category.toLowerCase()).toList();
+  }
+
+  // ✅ Filter projects by status
+  List<Project> getProjectsByStatus(String status) {
+    return _projects.where((project) => 
+        project.status.toLowerCase() == status.toLowerCase()).toList();
+  }
+
+  // ✅ Filter projects by difficulty
+  List<Project> getProjectsByDifficulty(String difficulty) {
+    return _projects.where((project) => 
+        project.difficulty.toLowerCase() == difficulty.toLowerCase()).toList();
+  }
+
+  // ✅ Get projects by skill match
+  List<Project> getProjectsBySkillMatch(List<String> userSkills, {double minMatch = 0.3}) {
+    return _projects.where((project) => 
+        project.getSkillMatch(userSkills) >= minMatch).toList()
+      ..sort((a, b) => b.getSkillMatch(userSkills).compareTo(a.getSkillMatch(userSkills)));
+  }
+
+  // ✅ Get overdue projects
+  List<Project> getOverdueProjects() {
+    return _projects.where((project) => project.isOverdue).toList();
+  }
+
+  // ✅ Get recent projects
+  List<Project> getRecentProjects({int limit = 5}) {
+    final sortedProjects = [..._projects];
+    sortedProjects.sort((a, b) {
+      final aDate = a.updatedAt ?? a.createdAt;
+      final bDate = b.updatedAt ?? b.createdAt;
+      return bDate.compareTo(aDate);
+    });
+    return sortedProjects.take(limit).toList();
+  }
+
+  // ✅ Get project statistics
+  Map<String, dynamic> getProjectStatistics() {
+    final totalProgress = _projects.fold<double>(
+        0.0, (sum, project) => sum + project.progress);
+    final avgProgress = _projects.isNotEmpty ? totalProgress / _projects.length : 0.0;
+    
+    final categoryCount = <String, int>{};
+    final difficultyCount = <String, int>{};
+    
+    for (final project in _projects) {
+      categoryCount[project.category] = (categoryCount[project.category] ?? 0) + 1;
+      difficultyCount[project.difficulty] = (difficultyCount[project.difficulty] ?? 0) + 1;
+    }
+    
+    return {
+      'total_projects': totalProjects,
+      'active_projects': activeProjectsCount,
+      'completed_projects': completedProjectsCount,
+      'paused_projects': pausedProjects.length,
+      'average_progress': avgProgress,
+      'overdue_projects': getOverdueProjects().length,
+      'categories': categoryCount,
+      'difficulties': difficultyCount,
+      'total_team_members': _projects.fold<int>(
+          0, (sum, project) => sum + project.teamSize),
+    };
+  }
+
+  // ✅ Refresh projects
+  Future<void> refreshProjects() async {
+    await fetchProjects();
+  }
+
+  // ✅ Clear suggestions
+  void clearSuggestions() {
     _suggestions.clear();
-    _deletedProjectIds.clear();
-    _error = null;
     notifyListeners();
   }
 
-  /// Clear error
-  void clearError() {
-    _error = null;
-    notifyListeners();
-  }
-
-  /// Refresh all data
-  Future<void> refreshData() async {
-    await Future.wait([
-      fetchProjects(),
-      refreshSuggestions(),
-    ]);
-  }
-
-  /// Set loading state
+  // ✅ Helper methods
   void _setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
   }
 
-  /// Get statistics
-  Map<String, dynamic> getStatistics() {
-    return {
-      'total_projects': projects.length,
-      'total_suggestions': _suggestions.length,
-      'deleted_projects': _deletedProjectIds.length,
-      'active_projects': projects.where((p) => p.status == 'active').length,
-      'has_error': _error != null,
-      'is_loading': _isLoading,
-    };
+  void _setLoadingSuggestions(bool loading) {
+    _isLoadingSuggestions = loading;
+    notifyListeners();
+  }
+
+  void clearError() {
+    _error = null;
+    notifyListeners();
+  }
+
+  void clearData() {
+    _projects.clear();
+    _suggestions.clear();
+    _selectedProject = null;
+    _currentUserId = null;
+    _error = null;
+    notifyListeners();
+  }
+
+  // ✅ Demo project creation
+  Future<void> createDemoProjects() async {
+    if (_currentUserId == null) return;
+    
+    final demoProjects = [
+      {
+        'title': 'Flutter E-commerce App',
+        'description': 'Build a complete e-commerce mobile app with payment integration',
+        'category': 'Mobile Development',
+        'required_skills': ['Flutter', 'Dart', 'Firebase', 'Payment APIs'],
+        'difficulty': 'intermediate',
+        'estimated_duration': '8-10 weeks',
+      },
+      {
+        'title': 'AI Chat Assistant',
+        'description': 'Create an intelligent chatbot with natural language processing',
+        'category': 'AI Development',
+        'required_skills': ['Python', 'NLP', 'Machine Learning', 'APIs'],
+        'difficulty': 'advanced',
+        'estimated_duration': '6-8 weeks',
+      },
+      {
+        'title': 'Personal Portfolio Website',
+        'description': 'Design and develop a professional portfolio website',
+        'category': 'Web Development',
+        'required_skills': ['HTML', 'CSS', 'JavaScript', 'React'],
+        'difficulty': 'beginner',
+        'estimated_duration': '2-3 weeks',
+      },
+    ];
+
+    for (final projectData in demoProjects) {
+      await createProject(
+        title: projectData['title']!,
+        description: projectData['description']!,
+        category: projectData['category']!,
+        requiredSkills: List<String>.from(projectData['required_skills']!),
+        difficulty: projectData['difficulty']!,
+        estimatedDuration: projectData['estimated_duration']!,
+      );
+    }
+  }
+
+  // ✅ Get popular categories
+  List<String> getPopularCategories() {
+    final statistics = getProjectStatistics();
+    final categories = statistics['categories'] as Map<String, int>;
+    
+    final sortedCategories = categories.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    return sortedCategories.map((entry) => entry.key).take(5).toList();
+  }
+
+  // ✅ Get recommended skills
+  Set<String> getRecommendedSkills() {
+    final allSkills = <String>{};
+    for (final project in _projects) {
+      allSkills.addAll(project.requiredSkills);
+    }
+    return allSkills;
   }
 }

@@ -8,6 +8,8 @@ class Suggestion {
   final User? teamMember;
   final String description;
   final double matchScore;
+  final String timeline;
+  final String difficulty;
   final DateTime createdAt;
 
   Suggestion({
@@ -17,8 +19,10 @@ class Suggestion {
     this.teamMember,
     required this.description,
     required this.matchScore,
-    required this.createdAt,
-  });
+    required this.timeline,
+    required this.difficulty,
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
 
   factory Suggestion.fromJson(Map<String, dynamic> json) {
     return Suggestion(
@@ -28,6 +32,8 @@ class Suggestion {
       teamMember: json['team_member'] != null ? User.fromJson(json['team_member']) : null,
       description: json['description'] ?? '',
       matchScore: (json['match_score'] ?? 0.0).toDouble(),
+      timeline: json['timeline'] ?? '2-4 weeks',
+      difficulty: json['difficulty'] ?? 'Intermediate',
       createdAt: DateTime.parse(json['created_at'] ?? DateTime.now().toIso8601String()),
     );
   }
@@ -40,6 +46,8 @@ class Suggestion {
       'team_member': teamMember?.toJson(),
       'description': description,
       'match_score': matchScore,
+      'timeline': timeline,
+      'difficulty': difficulty,
       'created_at': createdAt.toIso8601String(),
     };
   }

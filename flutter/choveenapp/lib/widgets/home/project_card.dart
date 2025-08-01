@@ -8,11 +8,11 @@ class ProjectCard extends StatelessWidget {
   final VoidCallback? onJoin;
 
   const ProjectCard({
-    Key? key,
+    super.key,
     required this.project,
     this.onTap,
     this.onJoin,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

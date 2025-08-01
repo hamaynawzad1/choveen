@@ -8,11 +8,11 @@ class SuggestionCard extends StatelessWidget {
   final VoidCallback? onJoin;
 
   const SuggestionCard({
-    Key? key,
+    super.key,
     required this.suggestion,
     this.onTap,
     this.onJoin,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

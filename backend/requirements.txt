@@ -1,8 +1,12 @@
+# backend/requirements.txt - Windows Compatible
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 sqlalchemy==2.0.23
 alembic==1.12.1
-psycopg2-binary==2.9.9
+
+# Use psycopg2-binary for Windows OR skip PostgreSQL entirely
+# psycopg2-binary==2.9.9  # Commented out - causes issues on Windows
+
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
@@ -10,9 +14,15 @@ pydantic[email]==2.5.0
 python-dotenv==1.0.0
 httpx==0.25.2
 email-validator==2.1.0
-transformers==4.35.2
-torch==2.1.0
-sentence-transformers==2.2.2
+
+# DeepSeek dependencies (if you want them)
+# torch==2.4.1  # Large download - optional
+# triton==3.0.0  # May not work on Windows
+# transformers==4.46.3  # Optional
+# safetensors==0.4.5  # Optional
+
+# Lightweight alternatives
 requests==2.31.0
-groq==0.4.1
-google-generativeai==0.3.2
+
+# For SQLite instead of PostgreSQL (Windows friendly)
+aiosqlite==0.19.0

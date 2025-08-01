@@ -6,7 +6,7 @@ import '../../core/theme/app_colors.dart';
 import 'ai_chat_screen.dart';
 
 class AIChatListScreen extends StatefulWidget {
-  const AIChatListScreen({Key? key}) : super(key: key);
+  const AIChatListScreen({super.key});
 
   @override
   State<AIChatListScreen> createState() => _AIChatListScreenState();

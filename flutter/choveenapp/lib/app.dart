@@ -9,7 +9,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:choveen/core/services/notification_service.dart';
 
 class ChoveenApp extends StatelessWidget {
-  const ChoveenApp({Key? key}) : super(key: key);
+  const ChoveenApp({super.key});
 
   @override
   Widget build(BuildContext context) {

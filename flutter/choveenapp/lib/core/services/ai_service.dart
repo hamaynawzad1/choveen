@@ -1,415 +1,524 @@
-// lib/core/services/enhanced_ai_service.dart
+// lib/core/services/ai_service.dart
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import '../constants/api_constants.dart';
-import 'storage_service.dart';
+import 'dart:math';
 
-class EnhancedAIService {
-  static final EnhancedAIService _instance = EnhancedAIService._internal();
-  factory EnhancedAIService() => _instance;
-  EnhancedAIService._internal();
-  
-  final StorageService _storage = StorageService();
-  
-  // AI Providers (you can get free API keys)
-  static const String OPENAI_API_KEY = 'YOUR_OPENAI_KEY'; // Get from openai.com
-  static const String COHERE_API_KEY = 'YOUR_COHERE_KEY'; // Get from cohere.ai (free tier)
-  static const String ANTHROPIC_API_KEY = 'YOUR_CLAUDE_KEY'; // Get from anthropic.com
-  
-  // ✅ Smart AI Response with fallback
+class AIService {
+  // Singleton pattern
+  static final AIService _instance = AIService._internal();
+  factory AIService() => _instance;
+  AIService._internal();
+
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
+
+  // Initialize AI service
+  Future<void> initialize() async {
+    try {
+      _isInitialized = true;
+      print('✅ AI Service initialized successfully');
+    } catch (e) {
+      _isInitialized = false;
+      print('❌ AI Service initialization failed: $e');
+    }
+  }
+
+  // ✅ Get Smart AI Response with context awareness
   Future<String> getSmartAIResponse({
     required String message,
     String? projectTitle,
     String? projectContext,
     List<String>? userSkills,
+    String? conversationHistory,
   }) async {
     try {
-      // Try primary AI first
-      final response = await _tryPrimaryAI(message, projectTitle, projectContext);
-      if (response != null) return response;
+      // Simulate AI processing delay
+      await Future.delayed(const Duration(milliseconds: 1500));
+
+      final msgLower = message.toLowerCase();
+      final skills = userSkills ?? ['Programming', 'Development'];
+      final project = projectTitle ?? 'Your Project';
       
-      // Try secondary AI
-      final secondaryResponse = await _trySecondaryAI(message, projectTitle);
-      if (secondaryResponse != null) return secondaryResponse;
-      
-      // Use smart fallback
-      return _generateSmartFallback(message, projectTitle, projectContext, userSkills);
-      
-    } catch (e) {
-      print('AI Service Error: $e');
-      return _generateSmartFallback(message, projectTitle, projectContext, userSkills);
-    }
-  }
-  
-  // ✅ Try primary AI (Cohere - Free tier available)
-  Future<String?> _tryPrimaryAI(String message, String? projectTitle, String? context) async {
-    if (COHERE_API_KEY == 'YOUR_COHERE_KEY') return null;
-    
-    try {
-      final prompt = _buildPrompt(message, projectTitle, context);
-      
-      final response = await http.post(
-        Uri.parse('https://api.cohere.ai/v1/generate'),
-        headers: {
-          'Authorization': 'Bearer $COHERE_API_KEY',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'model': 'command',
-          'prompt': prompt,
-          'max_tokens': 300,
-          'temperature': 0.7,
-          'k': 0,
-          'stop_sequences': [],
-          'return_likelihoods': 'NONE'
-        }),
-      ).timeout(const Duration(seconds: 10));
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return data['generations']?[0]?['text']?.trim();
+      // Context-aware intelligent responses
+      if (_containsGreeting(msgLower)) {
+        return _generateGreetingResponse(project, skills);
       }
       
-      return null;
-    } catch (e) {
-      print('Cohere AI Error: $e');
-      return null;
-    }
-  }
-  
-  // ✅ Try secondary AI (Your backend)
-  Future<String?> _trySecondaryAI(String message, String? projectTitle) async {
-    try {
-      final token = await _storage.getToken();
-      
-      final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/ai/chat'),
-        headers: {
-          'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-        body: json.encode({
-          'message': message,
-          'project_title': projectTitle ?? 'Project',
-        }),
-      ).timeout(const Duration(seconds: 15));
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return data['response'];
+      if (_containsPlanningKeywords(msgLower)) {
+        return _generatePlanningResponse(project, skills);
       }
       
-      return null;
+      if (_containsTechnicalKeywords(msgLower)) {
+        return _generateTechnicalResponse(project, skills);
+      }
+      
+      if (_containsHelpKeywords(msgLower)) {
+        return _generateHelpResponse(project);
+      }
+      
+      if (_containsTeamKeywords(msgLower)) {
+        return _generateTeamResponse(project);
+      }
+      
+      if (_containsTestingKeywords(msgLower)) {
+        return _generateTestingResponse(project, skills);
+      }
+      
+      if (_containsDeploymentKeywords(msgLower)) {
+        return _generateDeploymentResponse(project, skills);
+      }
+      
+      // Default intelligent response
+      return _generateDefaultResponse(project, message, skills);
+      
     } catch (e) {
-      print('Backend AI Error: $e');
-      return null;
+      print('❌ AI Service error: $e');
+      return _generateFallbackResponse(message);
     }
   }
-  
-  // ✅ Smart context-aware prompt building
-  String _buildPrompt(String message, String? projectTitle, String? context) {
-    final buffer = StringBuffer();
-    
-    buffer.writeln('You are an AI assistant helping with a project management app called Choveen.');
-    
-    if (projectTitle != null) {
-      buffer.writeln('Current project: "$projectTitle"');
+
+  // ✅ Generate Project Suggestions
+  Future<List<Map<String, dynamic>>> generateProjectSuggestions({
+    required List<String> userSkills,
+    List<String>? interests,
+    String difficulty = 'intermediate',
+  }) async {
+    try {
+      await Future.delayed(const Duration(milliseconds: 1000));
+      
+      final suggestions = <Map<String, dynamic>>[];
+      final random = Random();
+      
+      // Base project templates based on skills
+      final projectTemplates = _getProjectTemplates(userSkills, difficulty);
+      
+      for (int i = 0; i < min(5, projectTemplates.length); i++) {
+        final template = projectTemplates[i];
+        suggestions.add({
+          'id': 'ai_proj_${random.nextInt(10000)}',
+          'title': template['title'],
+          'description': template['description'],
+          'required_skills': userSkills.take(3).toList(),
+          'category': template['category'],
+          'difficulty': difficulty,
+          'estimated_duration': template['duration'],
+          'match_score': (0.9 - (i * 0.1)).clamp(0.5, 1.0),
+          'ai_generated': true,
+        });
+      }
+      
+      return suggestions;
+      
+    } catch (e) {
+      print('❌ AI Service error generating suggestions: $e');
+      return _getFallbackSuggestions(userSkills, difficulty);
     }
-    
-    if (context != null) {
-      buffer.writeln('Project context: $context');
-    }
-    
-    buffer.writeln('\nUser message: $message');
-    buffer.writeln('\nProvide a helpful, specific response focused on the project:');
-    
-    return buffer.toString();
   }
-  
-  // ✅ Enhanced smart fallback system
-  String _generateSmartFallback(
-    String message, 
-    String? projectTitle, 
-    String? context,
-    List<String>? userSkills,
-  ) {
-    final msgLower = message.toLowerCase();
-    final project = projectTitle ?? 'your project';
-    
-    // Context-aware responses
-    final responses = <String, String>{
-      // Greetings
-      r'(hi|hello|hey|start|سڵاو|سلاو)': '''
-👋 Hello! I'm your AI assistant for $project.
 
-I can help you with:
-• Project planning and roadmaps
-• Task breakdown and prioritization  
-• Technical guidance for: ${userSkills?.join(', ') ?? 'your skills'}
-• Team collaboration strategies
-• Best practices and optimization
+  // ✅ Keyword Detection Methods
+  bool _containsGreeting(String msg) {
+    return msg.contains(RegExp(r'\b(hello|hi|hey|greetings|سڵاو|سلام)\b'));
+  }
 
-What would you like to work on today?
-''',
+  bool _containsPlanningKeywords(String msg) {
+    return msg.contains(RegExp(r'\b(plan|planning|organize|roadmap|strategy|schedule)\b'));
+  }
 
-      // Project planning
-      r'(plan|planning|roadmap|timeline|strategy)': '''
-📋 Let's create a solid plan for $project!
+  bool _containsTechnicalKeywords(String msg) {
+    return msg.contains(RegExp(r'\b(code|coding|programming|development|technical|bug|error|implementation)\b'));
+  }
 
-**Project Planning Framework:**
+  bool _containsHelpKeywords(String msg) {
+    return msg.contains(RegExp(r'\b(help|stuck|problem|issue|challenge|difficult)\b'));
+  }
 
-1. **Define Objectives** 🎯
-   - What problem are we solving?
-   - Who is our target audience?
-   - What's our success criteria?
+  bool _containsTeamKeywords(String msg) {
+    return msg.contains(RegExp(r'\b(team|collaborate|members|communication|meeting)\b'));
+  }
 
-2. **Break Down Phases** 📊
-   - Phase 1: Foundation (2-3 weeks)
-   - Phase 2: Core Features (4-6 weeks)
-   - Phase 3: Polish & Testing (2 weeks)
-   - Phase 4: Launch & Iterate
+  bool _containsTestingKeywords(String msg) {
+    return msg.contains(RegExp(r'\b(test|testing|quality|bug|debugging|qa)\b'));
+  }
 
-3. **Task Prioritization** ⚡
-   - Must Have (P0): Core functionality
-   - Should Have (P1): Important features
-   - Nice to Have (P2): Enhancements
+  bool _containsDeploymentKeywords(String msg) {
+    return msg.contains(RegExp(r'\b(deploy|deployment|production|launch|release)\b'));
+  }
 
-4. **Resource Allocation** 👥
-   - Assign tasks based on skills
-   - Set realistic deadlines
-   - Plan for reviews
+  // ✅ Response Generation Methods
+  String _generateGreetingResponse(String project, List<String> skills) {
+    final skillsText = skills.take(3).join(', ');
+    return '''👋 **Hello! Welcome to your AI Project Assistant**
 
-Which phase should we detail first?
-''',
+I'm excited to help you build **$project**! I can see you have great skills in **$skillsText**.
 
-      // Technical help
-      r'(code|bug|error|technical|implement|develop)': '''
-🔧 I'll help you solve technical challenges in $project.
+🎯 **Here's how I can assist you today:**
 
-**Debugging Approach:**
+**Project Planning**
+• Break down your project into manageable phases
+• Create realistic timelines and milestones
+• Suggest best development practices
 
-1. **Identify the Issue** 🔍
-   - What's the expected behavior?
-   - What's actually happening?
-   - Any error messages?
+**Technical Guidance**
+• Code architecture recommendations
+• Technology stack suggestions
+• Problem-solving support
 
-2. **Isolate the Problem** 🎯
-   - Which component is affected?
-   - When did it start?
-   - What changed recently?
+**Team Collaboration**
+• Workflow optimization
+• Communication strategies
+• Task management tips
 
-3. **Solution Strategy** 💡
-   - Quick fixes vs. proper solutions
-   - Performance implications
-   - Future maintainability
+What aspect of your project would you like to focus on first?''';
+  }
 
-Share your specific technical challenge, and I'll provide targeted solutions!
-''',
+  String _generatePlanningResponse(String project, List<String> skills) {
+    return '''📋 **Smart Project Planning for $project**
 
-      // Team collaboration
-      r'(team|collaborate|member|communication|work together)': '''
-👥 Effective team collaboration for $project:
+🚀 **Recommended Development Phases:**
 
-**Team Success Framework:**
+**Phase 1: Foundation** (Week 1-2)
+• Define project requirements clearly
+• Set up development environment
+• Create basic project structure
+• Plan database schema (if needed)
 
-1. **Communication Channels** 💬
-   - Daily standups (15 min)
-   - Weekly planning sessions
-   - Async updates in chat
-   - Code review process
+**Phase 2: Core Development** (Week 3-6)
+• Implement main features step by step
+• Build user interface components
+• Add authentication & user management
+• Create API endpoints & data handling
 
-2. **Task Management** 📝
-   - Clear task descriptions
-   - Defined acceptance criteria
-   - Regular progress updates
-   - Blocker identification
+**Phase 3: Enhancement** (Week 7-8)
+• Add advanced features
+• Improve user experience
+• Performance optimization
+• Error handling & validation
 
-3. **Collaboration Tools** 🛠️
-   - Version control (Git)
-   - Project boards (Kanban)
-   - Documentation (Wiki)
-   - Design handoffs
+**Phase 4: Finalization** (Week 9-10)
+• Comprehensive testing
+• Bug fixes & improvements
+• Documentation
+• Deployment preparation
 
-4. **Team Culture** 🌟
-   - Celebrate wins
-   - Learn from failures
-   - Share knowledge
-   - Support each other
+💡 **Given your ${skills.take(2).join(' & ')} skills, I recommend starting with the core functionality first. What specific feature would you like to tackle?**''';
+  }
 
-What aspect of team collaboration needs attention?
-''',
+  String _generateTechnicalResponse(String project, List<String> skills) {
+    return '''🔧 **Technical Guidance for $project**
 
-      // Getting started
-      r'(start|begin|how to|first step|get started)': '''
-🚀 Let's get $project started the right way!
+**Architecture Recommendations:**
+• Use clean, modular code structure
+• Implement proper error handling
+• Follow ${skills.contains('Flutter') ? 'Flutter' : skills.contains('React') ? 'React' : 'industry'} best practices
+• Consider scalability from the start
 
-**Quick Start Guide:**
+**Code Quality Tips:**
+• Write descriptive variable and function names
+• Add comments for complex logic
+• Use version control (Git) consistently
+• Implement unit tests where possible
 
-1. **Setup Phase** (Today)
-   ✓ Define project goals
-   ✓ List required features
-   ✓ Identify team skills
-   ✓ Choose tech stack
+**Common Issues & Solutions:**
+• **Performance**: Optimize heavy operations, use lazy loading
+• **Security**: Validate all inputs, use secure authentication
+• **Maintainability**: Keep functions small and focused
+• **User Experience**: Add loading states and error messages
 
-2. **Planning Phase** (This week)
-   ✓ Create project structure
-   ✓ Design basic wireframes
-   ✓ Set up development environment
-   ✓ Initialize version control
+**Debugging Strategy:**
+1. Reproduce the issue consistently
+2. Check logs and error messages
+3. Use breakpoints and debugging tools
+4. Test fixes in isolation
 
-3. **Execution Phase** (Next 2 weeks)
-   ✓ Build core features
-   ✓ Regular testing
-   ✓ Daily progress updates
-   ✓ Weekly team reviews
+What specific technical challenge are you facing right now?''';
+  }
 
-Ready to tackle the first step? Let's define your project goals!
-''',
+  String _generateHelpResponse(String project) {
+    return '''🆘 **I'm here to help with $project!**
 
-      // Best practices
-      r'(best practice|quality|standard|improve|optimize)': '''
-✨ Best practices for $project success:
+**Let's solve this together:**
 
-**Code Quality** 📝
-• Write self-documenting code
-• Follow consistent naming conventions
-• Add meaningful comments
-• Keep functions small and focused
+**Step 1: Describe the Problem**
+• What exactly isn't working?
+• When does the issue occur?
+• What error messages do you see?
 
-**Development Process** 🔄
-• Commit early and often
-• Write descriptive commit messages
+**Step 2: Gather Information**
+• What were you trying to accomplish?
+• What steps led to this issue?
+• Have you made recent changes?
+
+**Step 3: Troubleshoot**
+• Check for typos in code
+• Verify file paths and imports
+• Look at console/log output
+• Test in isolation
+
+**Step 4: Find Solutions**
+• Search documentation
+• Check Stack Overflow
+• Try alternative approaches
+• Ask for specific help
+
+**Common Quick Fixes:**
+• Restart development server
+• Clear cache/storage
+• Update dependencies
+• Check network connectivity
+
+Tell me more about what you're stuck on, and I'll provide specific guidance!''';
+  }
+
+  String _generateTeamResponse(String project) {
+    return '''👥 **Team Collaboration for $project**
+
+**Effective Team Communication:**
+
+**Daily Coordination**
+• 15-minute daily standup meetings
+• Share what you completed yesterday
+• Discuss today's goals
+• Identify any blockers
+
+**Task Management**
+• Use project management tools (Trello, Asana)
+• Break work into small, clear tasks
+• Assign ownership and deadlines
+• Track progress visually
+
+**Code Collaboration**
+• Use Git for version control
 • Create feature branches
-• Review before merging
+• Write clear commit messages
+• Review each other's code
 
-**Testing Strategy** 🧪
-• Write tests as you code
-• Aim for 80% coverage
-• Test edge cases
-• Automate where possible
+**Knowledge Sharing**
+• Document decisions and processes
+• Share useful resources
+• Conduct mini-learning sessions
+• Create a team wiki
 
-**Performance** ⚡
-• Optimize after profiling
-• Cache expensive operations
-• Lazy load when appropriate
-• Monitor metrics
+**Conflict Resolution**
+• Address issues early and directly
+• Focus on solutions, not problems
+• Listen actively to all perspectives
+• Seek compromise when possible
 
-Which area would you like to improve first?
-''',
+What specific team challenge would you like help with?''';
+  }
 
-      // Help and guidance
-      r'(help|guide|tutorial|learn|teach)': '''
-📚 I'm here to guide you through $project!
+  String _generateTestingResponse(String project, List<String> skills) {
+    return '''🧪 **Testing Strategy for $project**
 
-**Learning Resources:**
+**Testing Pyramid Approach:**
 
-1. **For Beginners** 🌱
-   - Start with fundamentals
-   - Follow tutorials step-by-step
-   - Practice with small projects
-   - Join community forums
+**Unit Tests (Foundation)**
+• Test individual functions and components
+• Quick to run and easy to debug
+• Should cover core business logic
+• Aim for 70-80% of your tests here
 
-2. **Intermediate Level** 🌿
-   - Study design patterns
-   - Contribute to open source
-   - Build real-world projects
-   - Learn from code reviews
+**Integration Tests (Middle)**
+• Test how components work together
+• Verify API endpoints and database operations
+• Check user workflows
+• 15-20% of your test suite
 
-3. **Advanced Topics** 🌳
-   - System architecture
-   - Performance optimization
-   - Security best practices
-   - Scaling strategies
+**End-to-End Tests (Top)**
+• Test complete user journeys
+• Verify critical business scenarios
+• Use tools like Selenium or Cypress
+• 5-10% of tests, focus on key features
 
-What specific topic would you like to explore?
-'''
-    };
+**${skills.contains('Flutter') ? 'Flutter' : skills.contains('React') ? 'React' : 'Mobile'} Specific Testing:**
+• Widget/Component testing
+• UI interaction testing
+• Performance testing
+• Device compatibility testing
+
+**Testing Best Practices:**
+• Write tests before fixing bugs
+• Keep tests simple and focused
+• Use descriptive test names
+• Mock external dependencies
+
+What type of testing would you like to implement first?''';
+  }
+
+  String _generateDeploymentResponse(String project, List<String> skills) {
+    return '''🚀 **Deployment Guide for $project**
+
+**Pre-Deployment Checklist:**
+
+**Code Quality**
+• All tests passing ✅
+• Code reviewed and approved ✅
+• No console errors or warnings ✅
+• Performance optimized ✅
+
+**Security**
+• Environment variables secured ✅
+• API keys and secrets protected ✅
+• Input validation implemented ✅
+• HTTPS enabled ✅
+
+**${skills.contains('Flutter') ? 'Flutter App' : skills.contains('React') ? 'Web App' : 'Application'} Deployment:**
+
+**Flutter Mobile:**
+• Build release APK/IPA
+• Test on physical devices
+• Upload to Play Store/App Store
+• Configure app signing
+
+**Web Application:**
+• Build production bundle
+• Configure CDN and caching
+• Set up domain and SSL
+• Deploy to hosting platform
+
+**Backend API:**
+• Set up production database
+• Configure environment variables
+• Deploy to cloud service
+• Set up monitoring and logs
+
+**Post-Deployment:**
+• Monitor application performance
+• Set up error tracking
+• Collect user feedback
+• Plan future updates
+
+Which deployment platform are you considering?''';
+  }
+
+  String _generateDefaultResponse(String project, String message, List<String> skills) {
+    return '''🤖 **AI Assistant for $project**
+
+I understand you're asking about: **"$message"**
+
+Based on your ${skills.join(', ')} skills, here are some relevant suggestions:
+
+**Immediate Actions:**
+• Break down your question into smaller parts
+• Check documentation for specific APIs or frameworks
+• Look for similar examples in your codebase
+• Consider alternative approaches
+
+**Resources to Explore:**
+• Official documentation
+• Community forums and discussions
+• Video tutorials and courses
+• Code examples and repositories
+
+**Next Steps:**
+• Try implementing a simple version first
+• Test with sample data
+• Iterate and improve gradually
+• Document your learning process
+
+💡 **For more specific help, try asking:**
+• "How do I implement [specific feature]?"
+• "What's the best way to handle [specific scenario]?"
+• "I'm getting [specific error], how to fix it?"
+
+What specific aspect would you like me to elaborate on?''';
+  }
+
+  String _generateFallbackResponse(String message) {
+    return '''🔄 **Processing your request: "$message"**
+
+I'm currently working on understanding your question better. While I process this, here are some general tips:
+
+**Development Best Practices:**
+• Start with small, working increments
+• Test frequently as you build
+• Keep your code organized and commented
+• Don't hesitate to refactor when needed
+
+**When Stuck:**
+• Take a step back and review the bigger picture
+• Try explaining the problem to someone else
+• Look for similar solutions online
+• Break complex problems into smaller parts
+
+**Resources:**
+• Documentation is your best friend
+• Stack Overflow for specific issues
+• GitHub for code examples
+• YouTube for step-by-step tutorials
+
+Please feel free to rephrase your question or ask about something more specific!''';
+  }
+
+  // ✅ Project Templates
+  List<Map<String, dynamic>> _getProjectTemplates(List<String> skills, String difficulty) {
+    final templates = <Map<String, dynamic>>[];
     
-    // Find matching response
-    for (final pattern in responses.keys) {
-      if (RegExp(pattern).hasMatch(msgLower)) {
-        return responses[pattern]!;
-      }
+    if (skills.any((s) => s.toLowerCase().contains('flutter') || s.toLowerCase().contains('mobile'))) {
+      templates.addAll([
+        {
+          'title': 'Personal Task Manager App',
+          'description': 'A complete task management app with categories, reminders, and progress tracking',
+          'category': 'Mobile Development',
+          'duration': '4-6 weeks',
+        },
+        {
+          'title': 'Social Media Dashboard',
+          'description': 'Create a social media management app with posting, analytics, and user engagement features',
+          'category': 'Social App',
+          'duration': '6-8 weeks',
+        },
+      ]);
     }
     
-    // Default intelligent response
-    return '''
-🤖 I'm here to help with $project!
-
-Based on your message, I can assist with:
-
-• **Technical Solutions**: Debug issues, optimize code, implement features
-• **Project Management**: Plan sprints, track progress, prioritize tasks  
-• **Team Coordination**: Improve collaboration, resolve blockers
-• **Best Practices**: Code quality, testing, documentation
-
-Could you please be more specific about what you need help with? 
-
-For example:
-- "Help me plan the next sprint"
-- "How do I implement user authentication?"
-- "What's the best way to organize our team?"
-
-I'm ready to provide detailed, actionable guidance! 💪
-''';
+    if (skills.any((s) => s.toLowerCase().contains('web') || s.toLowerCase().contains('react') || s.toLowerCase().contains('javascript'))) {
+      templates.addAll([
+        {
+          'title': 'E-commerce Website',
+          'description': 'Build a full-featured online store with payment integration and admin panel',
+          'category': 'Web Development',
+          'duration': '8-10 weeks',
+        },
+        {
+          'title': 'Portfolio Website',
+          'description': 'Create a professional portfolio showcasing your projects and skills',
+          'category': 'Personal Branding',
+          'duration': '2-3 weeks',
+        },
+      ]);
+    }
+    
+    // Add general templates
+    templates.addAll([
+      {
+        'title': 'Learning Management System',
+        'description': 'Build a platform for online courses with video streaming and progress tracking',
+        'category': 'Education Technology',
+        'duration': '10-12 weeks',
+      },
+      {
+        'title': 'Chat Application',
+        'description': 'Real-time messaging app with group chats, file sharing, and notifications',
+        'category': 'Communication',
+        'duration': '6-8 weeks',
+      },
+    ]);
+    
+    return templates;
   }
-  
-  // ✅ Generate team-based AI suggestions
-  Future<List<Map<String, dynamic>>> generateTeamProjectIdeas(List<String> userSkills) async {
-    final ideas = [
+
+  List<Map<String, dynamic>> _getFallbackSuggestions(List<String> skills, String difficulty) {
+    return [
       {
-        'title': 'Digital Creative Agency',
-        'skills_needed': ['Graphic Design', 'Web Development', 'Marketing', 'Photography'],
-        'description': 'Form a full-service creative agency offering branding, web design, and digital marketing',
-        'team_size': 4,
-      },
-      {
-        'title': 'E-Learning Platform Team',
-        'skills_needed': ['Teaching', 'Video Editing', 'Programming', 'Content Writing'],
-        'description': 'Create online courses with instructors, editors, and developers working together',
-        'team_size': 5,
-      },
-      {
-        'title': 'Mobile App Startup',
-        'skills_needed': ['Flutter', 'UI/UX Design', 'Backend Development', 'Marketing'],
-        'description': 'Build innovative mobile apps with a complete development and marketing team',
-        'team_size': 4,
-      },
-      {
-        'title': 'Content Production House',
-        'skills_needed': ['Photography', 'Videography', 'Editing', 'Social Media'],
-        'description': 'Professional content creation for brands and businesses',
-        'team_size': 4,
-      },
-      {
-        'title': 'Tech Consultancy Firm',
-        'skills_needed': ['Programming', 'Project Management', 'Business Analysis', 'DevOps'],
-        'description': 'Provide technical consulting and development services to businesses',
-        'team_size': 5,
+        'id': 'fallback_1',
+        'title': 'Skill-Based Project',
+        'description': 'A project tailored to your ${skills.join(', ')} skills',
+        'required_skills': skills.take(3).toList(),
+        'category': 'Custom Development',
+        'difficulty': difficulty,
+        'estimated_duration': '4-6 weeks',
+        'match_score': 0.8,
+        'ai_generated': false,
       }
     ];
-    
-    // Score and filter based on user skills
-    final scoredIdeas = ideas.map((idea) {
-      final requiredSkills = List<String>.from(idea['skills_needed'] as List);
-      final matchCount = userSkills.where((skill) =>
-        requiredSkills.any((req) => 
-          skill.toLowerCase().contains(req.toLowerCase()) ||
-          req.toLowerCase().contains(skill.toLowerCase())
-        )
-      ).length;
-      
-      return {
-        ...idea,
-        'match_score': matchCount / requiredSkills.length,
-        'your_role': userSkills.first,
-      };
-    }).where((idea) => (idea['match_score'] as double) > 0).toList();
-    
-    scoredIdeas.sort((a, b) => 
-      (b['match_score'] as double).compareTo(a['match_score'] as double)
-    );
-    
-    return scoredIdeas.take(3).toList();
   }
 }

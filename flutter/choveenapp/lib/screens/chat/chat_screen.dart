@@ -11,10 +11,10 @@ class ChatScreen extends StatefulWidget {
   final String chatName;
 
   const ChatScreen({
-    Key? key,
+    super.key,
     required this.chatId,
     required this.chatName,
-  }) : super(key: key);
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -75,7 +75,6 @@ class _ChatScreenState extends State<ChatScreen> {
             builder: (context, chatProvider, child) {
               return ChatInput(
                 onSendMessage: (message) {
-                  // گۆڕینی پارامەترەکان بۆ positional
                   chatProvider.sendMessage(widget.chatId, message);
                 },
                 isLoading: chatProvider.isLoading,

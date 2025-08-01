@@ -111,7 +111,7 @@ class SimpleInterestGroupService {
     
     // Mock team formation check
     final memberCount = Random().nextInt(5) + 1; // 1-5 members
-    final minMembers = 2;
+    const minMembers = 2;
     
     if (memberCount >= minMembers) {
       return {

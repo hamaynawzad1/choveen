@@ -1,460 +1,365 @@
-# backend/app/services/ai_service.py - COMPLETELY FIXED VERSION
-import google.generativeai as genai
-import hashlib
+import json
 import time
 import random
-from app.core.config import settings
-import logging
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
+from ..models.user import User
+from ..models.message import Message
+from ..models.project import Project
+from ..models.user_preferences import UserPreferences 
 
-logger = logging.getLogger(__name__)
-
-class AIService:
-    def __init__(self, db_session=None):
-        """Initialize AI Service with Gemini"""
-        try:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
-            self.ai_service = "gemini"
-            print("✅ Gemini AI initialized successfully")
-        except Exception as e:
-            print(f"❌ Gemini initialization failed: {e}")
-            self.model = None
-            self.ai_service = "fallback"
-
-    def generate_project_suggestions(self, user_skills: list, project_preferences: str = "", user_id: str = None, force_refresh: bool = False) -> list:
-        """🧠 INTELLIGENT: Generate truly creative and personalized suggestions"""
-        try:
-            skills_text = ", ".join(user_skills) if user_skills else "Technology enthusiast"
-            
-            print(f"🧠 INTELLIGENT AI: Analyzing skills for user {user_id}")
-            print(f"🎯 Skills: {user_skills}")
-            print(f"🔄 Creative mode: {force_refresh}")
-            
-            # Generate creative suggestions based on skills
-            return self._generate_creative_suggestions(user_skills, user_id, force_refresh)
-            
-        except Exception as e:
-            print(f"❌ AI suggestion error: {e}")
-            return self._generate_creative_suggestions(user_skills, user_id, force_refresh)
-
-    def _generate_creative_suggestions(self, user_skills: list, user_id: str, force_refresh: bool = False) -> list:
-        """🎨 Generate intelligent, creative project suggestions"""
-        try:
-            skills_text = ", ".join(user_skills) if user_skills else "general programming"
-            
-            # Create unique identifier for this generation
-            if force_refresh:
-                timestamp = int(time.time())
-                creativity_seed = random.randint(1000, 9999)
-                unique_id = f"{user_id}_{timestamp}_{creativity_seed}"
-            else:
-                unique_id = f"{user_id}_consistent"
-                
-            suggestion_hash = abs(hash(unique_id)) % 100000
-            
-            print(f"🎨 Creating creative suggestions with hash: {suggestion_hash}")
-            
-            # 🧠 INTELLIGENT PROJECT TEMPLATES based on skill combinations
-            creative_templates = self._get_skill_based_templates(user_skills, suggestion_hash)
-            
-            suggestions = []
-            
-            for i, template in enumerate(creative_templates):
-                # Match skills to template requirements
-                matched_skills = self._match_skills_to_template(user_skills, template)
-                
-                # Generate unique project idea
-                project_idea = self._generate_project_idea(template, matched_skills, suggestion_hash, i)
-                
-                suggestion = {
-                    "id": f"intelligent_{suggestion_hash}_{i + 1}",
-                    "type": "project",
-                    "project": {
-                        "id": f"proj_intelligent_{suggestion_hash}_{i + 1}",
-                        "title": project_idea["title"],
-                        "description": project_idea["description"],
-                        "required_skills": matched_skills
-                    },
-                    "description": project_idea["reasoning"],
-                    "match_score": project_idea["match_score"],
-                    "timeline": project_idea["timeline"],
-                    "difficulty": project_idea["difficulty"],
-                    "ai_generated": True,
-                    "intelligence_level": "creative",
-                    "personalized_for": skills_text,
-                    "generated_for_user": str(user_id),
-                    "creative_mode": force_refresh
-                }
-                suggestions.append(suggestion)
-            
-            print(f"✨ Generated {len(suggestions)} intelligent suggestions for {user_id}")
-            return suggestions
-            
-        except Exception as e:
-            print(f"❌ Creative generation error: {e}")
-            return self._create_fallback_suggestions(user_skills, user_id)
-
-    def _create_fallback_suggestions(self, user_skills: list, user_id: str) -> list:
-        """🔄 Create simple fallback suggestions if everything fails"""
-        try:
-            skills_text = ", ".join(user_skills) if user_skills else "Programming"
-            fallback_hash = abs(hash(f"{user_id}_fallback")) % 10000
-            
-            return [
-                {
-                    "id": f"fallback_{fallback_hash}_1",
-                    "type": "project",
-                    "project": {
-                        "id": f"proj_fallback_{fallback_hash}_1",
-                        "title": "Creative Portfolio Platform",
-                        "description": f"Build a modern portfolio platform showcasing your {skills_text} skills with interactive features and professional design.",
-                        "required_skills": user_skills[:3] if user_skills else ["HTML", "CSS", "JavaScript"]
-                    },
-                    "description": f"Perfect for demonstrating your {skills_text} expertise to potential employers and clients.",
-                    "match_score": 0.85,
-                    "timeline": "3-4 weeks",
-                    "difficulty": "Intermediate"
-                },
-                {
-                    "id": f"fallback_{fallback_hash}_2",
-                    "type": "project",
-                    "project": {
-                        "id": f"proj_fallback_{fallback_hash}_2",
-                        "title": "Smart Task Manager",
-                        "description": f"Create an intelligent task management application using your {skills_text} skills with automation and smart scheduling.",
-                        "required_skills": user_skills[:3] if user_skills else ["Python", "Database", "UI/UX"]
-                    },
-                    "description": f"Excellent project to showcase your {skills_text} abilities while solving real-world productivity challenges.",
-                    "match_score": 0.78,
-                    "timeline": "4-6 weeks",
-                    "difficulty": "Advanced"
-                }
-            ]
-        except Exception as e:
-            print(f"❌ Fallback creation failed: {e}")
-            return []
-
-    def _get_skill_based_templates(self, user_skills: list, hash_seed: int) -> list:
-        """🎯 Get templates based on user's actual skills"""
+class EnhancedAIService:
+    def __init__(self, db: Session):
+        self.db = db
+        self.user_contexts = {}  
         
-        # Analyze skill categories
-        skill_categories = self._analyze_skill_categories(user_skills)
+    def generate_personalized_response(
+        self, 
+        user_id: str,
+        message: str, 
+        project_id: str,
+        conversation_history: List[Dict] = None
+    ) -> str:
+        """Generate dynamic, user-specific AI responses"""
         
-        # 🧠 INTELLIGENT TEMPLATES for different skill combinations
-        if "design" in skill_categories:
-            return [
-                {
-                    "category": "creative_platform",
-                    "focus": "visual_innovation",
-                    "complexity": "intermediate",
-                    "industry": "creative_tech"
-                },
-                {
-                    "category": "brand_experience",
-                    "focus": "user_engagement", 
-                    "complexity": "advanced",
-                    "industry": "marketing_tech"
-                },
-                {
-                    "category": "interactive_media",
-                    "focus": "storytelling",
-                    "complexity": "expert",
-                    "industry": "entertainment"
-                }
-            ]
-        elif "programming" in skill_categories or "development" in skill_categories:
-            return [
-                {
-                    "category": "smart_automation",
-                    "focus": "efficiency_optimization",
-                    "complexity": "intermediate", 
-                    "industry": "productivity_tech"
-                },
-                {
-                    "category": "ai_integration",
-                    "focus": "intelligent_systems",
-                    "complexity": "advanced",
-                    "industry": "artificial_intelligence"
-                },
-                {
-                    "category": "platform_architecture",
-                    "focus": "scalable_solutions",
-                    "complexity": "expert",
-                    "industry": "enterprise_tech"
-                }
-            ]
-        elif "business" in skill_categories or "management" in skill_categories:
-            return [
-                {
-                    "category": "strategic_dashboard",
-                    "focus": "data_insights",
-                    "complexity": "intermediate",
-                    "industry": "business_intelligence"
-                },
-                {
-                    "category": "collaboration_hub",
-                    "focus": "team_optimization",
-                    "complexity": "advanced", 
-                    "industry": "team_productivity"
-                },
-                {
-                    "category": "innovation_platform",
-                    "focus": "strategic_growth",
-                    "complexity": "expert",
-                    "industry": "business_transformation"
-                }
-            ]
-        else:
-            # Generic innovative templates
-            return [
-                {
-                    "category": "innovation_lab",
-                    "focus": "creative_solutions",
-                    "complexity": "intermediate",
-                    "industry": "emerging_tech"
-                },
-                {
-                    "category": "community_platform",
-                    "focus": "social_impact",
-                    "complexity": "advanced",
-                    "industry": "social_tech"
-                },
-                {
-                    "category": "future_concept",
-                    "focus": "next_generation",
-                    "complexity": "expert", 
-                    "industry": "innovation"
-                }
-            ]
-
-    def _analyze_skill_categories(self, user_skills: list) -> list:
-        """📊 Analyze and categorize user skills"""
-        categories = []
+        # Get user context
+        user_context = self._get_user_context(user_id)
         
-        design_keywords = ["design", "ui", "ux", "graphic", "visual", "creative", "art", "animation"]
-        programming_keywords = ["programming", "development", "coding", "software", "web", "mobile", "python", "javascript", "flutter", "dart"]
-        business_keywords = ["business", "management", "strategy", "marketing", "sales", "analytics", "finance"]
+        # Analyze message intent
+        intent = self._analyze_message_intent(message)
         
-        skills_lower = [skill.lower() for skill in user_skills]
-        skills_text = " ".join(skills_lower)
+        # Get project context
+        project_context = self._get_project_context(project_id)
         
-        if any(keyword in skills_text for keyword in design_keywords):
-            categories.append("design")
-        if any(keyword in skills_text for keyword in programming_keywords):
-            categories.append("programming")
-        if any(keyword in skills_text for keyword in business_keywords):
-            categories.append("business")
-        if any(keyword in skills_text for keyword in ["data", "analysis", "research", "science"]):
-            categories.append("data")
-        if any(keyword in skills_text for keyword in ["communication", "writing", "content", "social"]):
-            categories.append("communication")
-            
-        return categories if categories else ["general"]
-
-    def _match_skills_to_template(self, user_skills: list, template: dict) -> list:
-        """🎯 Match user skills to project template requirements"""
-        matched = user_skills[:3] if len(user_skills) >= 3 else user_skills.copy()
+        # Generate personalized response
+        response = self._generate_contextual_response(
+            user_context=user_context,
+            message=message,
+            intent=intent,
+            project_context=project_context,
+            conversation_history=conversation_history or []
+        )
         
-        # Add complementary skills based on template
-        category = template["category"]
+        # Save interaction for learning
+        self._save_user_interaction(user_id, message, response, intent)
         
-        if "platform" in category:
-            matched.extend(["System Architecture", "User Experience"])
-        elif "dashboard" in category:
-            matched.extend(["Data Visualization", "Analytics"])
-        elif "creative" in category:
-            matched.extend(["Innovation", "Visual Design"])
-        elif "ai" in category:
-            matched.extend(["Machine Learning", "Algorithm Design"])
-        else:
-            matched.extend(["Problem Solving", "Team Collaboration"])
-            
-        # Remove duplicates and limit to 5 skills
-        return list(dict.fromkeys(matched))[:5]
-
-    def _generate_project_idea(self, template: dict, skills: list, hash_seed: int, index: int) -> dict:
-        """💡 Generate specific project idea based on template and skills"""
-        
-        # Creative project ideas based on template category
-        ideas = self._get_project_ideas_by_category()
-        
-        # Get appropriate ideas for template category
-        category = template["category"]
-        if category not in ideas:
-            category = "innovation_lab"  # Default fallback
-            
-        idea_set = ideas[category]
-        
-        # Select idea based on hash and index for consistency
-        title_index = (hash_seed + index) % len(idea_set["titles"])
-        desc_index = (hash_seed + index) % len(idea_set["descriptions"])
-        
-        title = idea_set["titles"][title_index]
-        description = idea_set["descriptions"][desc_index]
-        
-        # Calculate match score based on skill alignment
-        match_score = round(0.82 + (len(skills) * 0.02) + (index * 0.03), 2)
-        
-        # Determine timeline based on complexity
-        complexity = template["complexity"]
-        timelines = {
-            "intermediate": ["3-4 weeks", "4-5 weeks", "5-6 weeks"],
-            "advanced": ["6-8 weeks", "8-10 weeks", "10-12 weeks"],
-            "expert": ["12-16 weeks", "16-20 weeks", "20-24 weeks"]
-        }
-        
-        timeline_options = timelines.get(complexity, timelines["intermediate"])
-        timeline = timeline_options[index % len(timeline_options)]
-        
-        # Generate personalized reasoning
-        main_skills = ", ".join(skills[:3])
-        reasoning = f"This project perfectly aligns with your expertise in {main_skills}. It's designed to challenge your current skills while introducing cutting-edge technologies and methodologies that will significantly enhance your professional portfolio."
-        
-        return {
-            "title": title,
-            "description": description,
-            "reasoning": reasoning,
-            "match_score": match_score,
-            "timeline": timeline,
-            "difficulty": complexity.title()
-        }
-
-    def _get_project_ideas_by_category(self) -> dict:
-        """📚 Get all project ideas organized by category"""
-        return {
-            "creative_platform": {
-                "titles": [
-                    "Visual Storytelling Studio",
-                    "Creative Collaboration Hub", 
-                    "Digital Art Innovation Platform",
-                    "Interactive Design Workspace"
-                ],
-                "descriptions": [
-                    "Build a cutting-edge platform where creators can collaborate on visual projects with real-time editing, AI-assisted design suggestions, and seamless workflow integration.",
-                    "Create an innovative space for creative professionals to showcase portfolios, collaborate on projects, and discover new opportunities through intelligent matching.",
-                    "Develop a comprehensive creative suite that combines traditional design tools with AI-powered features for enhanced creativity and productivity."
-                ]
-            },
-            "smart_automation": {
-                "titles": [
-                    "Intelligent Workflow Optimizer",
-                    "Smart Task Automation Engine",
-                    "AI-Powered Productivity Suite",
-                    "Automated Decision Support System"
-                ],
-                "descriptions": [
-                    "Design an intelligent system that learns from user behavior to automate repetitive tasks and optimize workflows for maximum efficiency.",
-                    "Build a smart automation platform that can analyze processes and suggest improvements while seamlessly integrating with existing tools.",
-                    "Create a comprehensive productivity solution that uses machine learning to predict user needs and automate routine operations."
-                ]
-            },
-            "strategic_dashboard": {
-                "titles": [
-                    "Executive Intelligence Dashboard",
-                    "Strategic Insights Platform",
-                    "Business Analytics Command Center",
-                    "Performance Optimization Hub"
-                ],
-                "descriptions": [
-                    "Develop a sophisticated dashboard that transforms complex business data into actionable insights with predictive analytics and real-time monitoring.",
-                    "Build a comprehensive platform that aggregates business metrics and provides intelligent recommendations for strategic decision-making.",
-                    "Create an advanced analytics solution that visualizes key performance indicators and identifies optimization opportunities."
-                ]
-            },
-            "ai_integration": {
-                "titles": [
-                    "Intelligent Assistant Ecosystem",
-                    "AI-Powered Decision Platform",
-                    "Smart Integration Framework",
-                    "Cognitive Computing Solution"
-                ],
-                "descriptions": [
-                    "Build a sophisticated AI ecosystem that integrates multiple intelligent services to provide seamless automation and decision support.",
-                    "Create a platform that leverages artificial intelligence to enhance human decision-making with data-driven insights and predictions.",
-                    "Develop an advanced framework that enables businesses to integrate AI capabilities into their existing workflows and processes."
-                ]
-            },
-            "innovation_lab": {
-                "titles": [
-                    "Future Innovation Incubator",
-                    "Emerging Technology Hub",
-                    "Creative Solution Laboratory",
-                    "Next-Gen Development Platform"
-                ],
-                "descriptions": [
-                    "Create an experimental platform for testing and developing innovative solutions that address emerging challenges in technology and society.",
-                    "Build a collaborative space where innovators can prototype new ideas, share resources, and accelerate the development of breakthrough technologies.",
-                    "Develop a comprehensive innovation ecosystem that supports the entire journey from concept to implementation."
-                ]
-            },
-            "brand_experience": {
-                "titles": [
-                    "Brand Identity Revolution",
-                    "Customer Experience Platform",
-                    "Digital Brand Ecosystem"
-                ],
-                "descriptions": [
-                    "Create a comprehensive brand management platform that unifies visual identity, customer touchpoints, and brand messaging across all channels.",
-                    "Build an innovative customer experience platform that delivers personalized brand interactions through intelligent automation and design.",
-                    "Develop a complete digital ecosystem that strengthens brand presence and enhances customer engagement through creative technology."
-                ]
-            },
-            "collaboration_hub": {
-                "titles": [
-                    "Team Synergy Platform",
-                    "Collaborative Intelligence Hub",
-                    "Unified Workspace Solution"
-                ],
-                "descriptions": [
-                    "Design a next-generation collaboration platform that enhances team productivity through intelligent task management and seamless communication.",
-                    "Build a comprehensive hub that combines project management, communication tools, and knowledge sharing in an intuitive interface.",
-                    "Create a unified workspace that adapts to team needs and provides intelligent insights for optimal collaboration and productivity."
-                ]
-            }
-        }
-
-    def get_project_chat_response(self, message: str, project_title: str, project_description: str = "") -> str:
-        """🧠 INTELLIGENT: Enhanced AI chat with better context awareness"""
-        try:
-            message_lower = message.lower().strip()
-            
-            # Check for non-project topics
-            non_project_keywords = ['weather', 'car', 'ferrari', 'bugatti', 'food', 'movie', 'sport',
-                                  'news', 'politics', 'celebrity', 'game', 'music', 'travel']
-            
-            if any(keyword in message_lower for keyword in non_project_keywords):
-                return "I'm focused on helping you with your project development. Let's discuss your project goals, technical challenges, or team coordination instead!"
-            
-            # 🧠 INTELLIGENT PROJECT RESPONSES
-            if any(word in message_lower for word in ['hi', 'hello', 'hey', 'start', 'begin']):
-                return f"Hello! I'm your intelligent project assistant for '{project_title}'. I can help you with:\n\n🎯 Strategic planning and roadmaps\n💡 Creative problem-solving\n🔧 Technical guidance\n👥 Team coordination\n📊 Progress tracking\n\nWhat aspect would you like to explore first?"
-            
-            if any(word in message_lower for word in ['plan', 'planning', 'strategy', 'roadmap']):
-                return f"Excellent! Let's create a strategic plan for '{project_title}':\n\n🔍 **Discovery Phase:**\n• Requirements analysis\n• Stakeholder mapping\n• Technology assessment\n\n🎨 **Design Phase:**\n• User experience design\n• System architecture\n• Prototype development\n\n🚀 **Development Phase:**\n• Iterative development\n• Quality assurance\n• Performance optimization\n\n📈 **Launch Phase:**\n• Deployment strategy\n• User onboarding\n• Performance monitoring\n\nWhich phase would you like to dive deeper into?"
-            
-            if any(word in message_lower for word in ['stuck', 'problem', 'issue', 'help', 'challenge', 'difficult']):
-                return f"I'm here to help you overcome challenges with '{project_title}'! Let's troubleshoot together:\n\n🔍 **Problem-Solving Framework:**\n• Clearly define the issue\n• Identify root causes\n• Brainstorm potential solutions\n• Evaluate pros and cons\n• Implement and test\n\n💡 **Common Solutions:**\n• Break complex problems into smaller parts\n• Research similar implementations\n• Consult with experts or community\n• Prototype different approaches\n\nCan you describe the specific challenge you're facing? The more details you provide, the better I can assist you!"
-            
-            # Enhanced default response
-            return f"I'm your intelligent project assistant for '{project_title}'! I can provide deep insights on strategic planning, technical guidance, team leadership, and project management. What specific aspect would you like help with?"
-            
-        except Exception as e:
-            print(f"❌ AI chat error: {e}")
-            return f"I'm your intelligent assistant for '{project_title}'! How can I help you succeed with your project today?"
+        return response
     
-    def get_ai_response(prompt: str) -> str:
-        try:
-            # نموونە بۆ جیمینای گووگڵ (پێویستە API Key هەبێت)
-            response = palm.generate_text(
-                model='models/text-bison-001',
-                prompt=prompt,
-                temperature=0.7,
-                max_output_tokens=500
+    def _get_user_context(self, user_id: str) -> Dict[str, Any]:
+        """Get comprehensive user context"""
+        
+        # Check cache first
+        if user_id in self.user_contexts:
+            cached_context = self.user_contexts[user_id]
+            if cached_context['last_updated'] > datetime.now() - timedelta(minutes=30):
+                return cached_context
+        
+        # Build fresh context
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return self._get_default_context()
+        
+        # Get user preferences (new table)
+        preferences = self.db.query(UserPreferences).filter(
+            UserPreferences.user_id == user_id
+        ).first()
+        
+        # Get recent messages for behavior analysis
+        recent_messages = self.db.query(Message).filter(
+            Message.sender_id == user_id
+        ).order_by(Message.created_at.desc()).limit(50).all()
+        
+        # Get projects user is involved in
+        user_projects = self.db.query(Project).filter(
+            Project.created_by == user_id
+        ).all()
+        
+        # Analyze user behavior patterns
+        behavior_patterns = self._analyze_user_behavior(recent_messages)
+        
+        context = {
+            'user_id': user_id,
+            'name': user.name,
+            'skills': user.skills_list or [],
+            'experience_level': self._calculate_experience_level(user, recent_messages),
+            'preferences': preferences.to_dict() if preferences else {},
+            'communication_style': behavior_patterns['communication_style'],
+            'preferred_topics': behavior_patterns['preferred_topics'],
+            'project_types': behavior_patterns['project_types'],
+            'active_projects': len(user_projects),
+            'last_active': user.last_login,
+            'total_messages': len(recent_messages),
+            'personality_traits': self._extract_personality_traits(recent_messages),
+            'current_challenges': self._identify_current_challenges(recent_messages),
+            'last_updated': datetime.now()
+        }
+        
+        # Cache context
+        self.user_contexts[user_id] = context
+        
+        return context
+    
+    def _analyze_user_behavior(self, messages: List[Message]) -> Dict[str, Any]:
+        """Analyze user behavior from message history"""
+        
+        if not messages:
+            return {
+                'communication_style': 'neutral',
+                'preferred_topics': [],
+                'project_types': [],
+                'help_seeking_pattern': 'independent'
+            }
+        
+        message_contents = [msg.content.lower() for msg in messages]
+        all_text = ' '.join(message_contents)
+        
+        # Analyze communication style
+        question_ratio = sum(1 for msg in message_contents if '?' in msg) / len(messages)
+        urgent_words = ['urgent', 'asap', 'quickly', 'fast', 'help']
+        urgency_ratio = sum(1 for msg in message_contents 
+                          if any(word in msg for word in urgent_words)) / len(messages)
+        
+        if question_ratio > 0.4:
+            communication_style = 'inquisitive'
+        elif urgency_ratio > 0.3:
+            communication_style = 'direct'
+        else:
+            communication_style = 'collaborative'
+        
+        # Extract preferred topics
+        topic_keywords = {
+            'frontend': ['ui', 'ux', 'design', 'frontend', 'css', 'html', 'react'],
+            'backend': ['api', 'database', 'server', 'backend', 'python', 'node'],
+            'mobile': ['mobile', 'app', 'android', 'ios', 'flutter', 'react native'],
+            'data': ['data', 'analytics', 'ml', 'ai', 'machine learning'],
+            'devops': ['deploy', 'docker', 'aws', 'cloud', 'devops']
+        }
+        
+        preferred_topics = []
+        for topic, keywords in topic_keywords.items():
+            if any(keyword in all_text for keyword in keywords):
+                preferred_topics.append(topic)
+        
+        return {
+            'communication_style': communication_style,
+            'preferred_topics': preferred_topics,
+            'project_types': self._extract_project_types(message_contents),
+            'help_seeking_pattern': 'collaborative' if question_ratio > 0.3 else 'independent'
+        }
+    
+    def _generate_contextual_response(
+        self,
+        user_context: Dict[str, Any],
+        message: str,
+        intent: str,
+        project_context: Dict[str, Any],
+        conversation_history: List[Dict]
+    ) -> str:
+        """Generate personalized response based on full context"""
+        
+        # Personalize greeting based on user
+        greeting = self._get_personalized_greeting(user_context)
+        
+        # Adjust response style based on communication preference
+        if user_context['communication_style'] == 'direct':
+            response_style = 'concise'
+        elif user_context['communication_style'] == 'inquisitive':
+            response_style = 'detailed'
+        else:
+            response_style = 'balanced'
+        
+        # Generate base response based on intent
+        if intent == 'technical_help':
+            base_response = self._generate_technical_help(
+                message, user_context['skills'], user_context['experience_level']
             )
-            return response.result
+        elif intent == 'project_planning':
+            base_response = self._generate_project_planning_help(
+                message, user_context['preferred_topics'], project_context
+            )
+        elif intent == 'learning':
+            base_response = self._generate_learning_guidance(
+                message, user_context['skills'], user_context['experience_level']
+            )
+        else:
+            base_response = self._generate_general_help(message, user_context)
+        
+        # Personalize response with user context
+        personalized_response = self._personalize_response(
+            base_response, user_context, response_style
+        )
+        
+        # Add relevant suggestions based on user history
+        suggestions = self._get_contextual_suggestions(user_context, intent)
+        
+        if suggestions:
+            personalized_response += f"\n\n💡 **Based on your interests in {', '.join(user_context['preferred_topics'])}:**\n"
+            personalized_response += '\n'.join([f"• {suggestion}" for suggestion in suggestions])
+        
+        return personalized_response
+    
+    def generate_dynamic_suggestions(
+        self, 
+        user_id: str, 
+        force_refresh: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Generate truly dynamic, personalized project suggestions"""
+        
+        user_context = self._get_user_context(user_id)
+        
+        # Check if we should use cached suggestions
+        if not force_refresh:
+            cached_suggestions = self._get_cached_suggestions(user_id)
+            if cached_suggestions and len(cached_suggestions) > 0:
+                return cached_suggestions
+        
+        # Generate new personalized suggestions
+        suggestions = []
+        
+        # Base suggestions on user's actual interests and behavior
+        base_templates = self._get_personalized_templates(user_context)
+        
+        for i, template in enumerate(base_templates[:3]):  # Top 3 suggestions
+            
+            # Customize based on user context
+            customized_project = self._customize_project_for_user(
+                template, user_context, i
+            )
+            
+            suggestion = {
+                "id": f"personalized_{user_id}_{int(time.time())}_{i}",
+                "type": "project",
+                "project": customized_project,
+                "personalization_score": self._calculate_personalization_score(
+                    customized_project, user_context
+                ),
+                "reason": self._explain_suggestion_reason(customized_project, user_context),
+                "estimated_interest": self._predict_user_interest(customized_project, user_context)
+            }
+            
+            suggestions.append(suggestion)
+        
+        # Cache suggestions
+        self._cache_suggestions(user_id, suggestions)
+        
+        return suggestions
+    
+    def _get_personalized_templates(self, user_context: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get project templates tailored to user's interests and skills"""
+        
+        templates = []
+        skills = user_context['skills']
+        preferred_topics = user_context['preferred_topics']
+        experience_level = user_context['experience_level']
+        
+        # Web Development Projects
+        if any(skill in ['html', 'css', 'javascript', 'react', 'vue'] for skill in skills):
+            if 'frontend' in preferred_topics:
+                templates.append({
+                    'category': 'web_frontend',
+                    'base_title': f"Interactive {user_context['name']}'s Portfolio",
+                    'description_template': 'Modern, responsive portfolio showcasing your frontend skills',
+                    'skills_focus': ['HTML5', 'CSS3', 'JavaScript', 'React'],
+                    'difficulty': experience_level,
+                    'estimated_duration': '2-3 weeks'
+                })
+        
+        # Mobile Development Projects  
+        if any(skill in ['flutter', 'react native', 'android', 'ios'] for skill in skills):
+            templates.append({
+                'category': 'mobile',
+                'base_title': 'Smart Task Management App',
+                'description_template': 'Cross-platform mobile app with offline sync',
+                'skills_focus': ['Flutter', 'Firebase', 'SQLite'],
+                'difficulty': experience_level,
+                'estimated_duration': '4-6 weeks'
+            })
+        
+        # Data Science Projects
+        if any(skill in ['python', 'data analysis', 'ml', 'ai'] for skill in skills):
+            if 'data' in preferred_topics:
+                templates.append({
+                    'category': 'data_science',
+                    'base_title': 'Predictive Analytics Dashboard',
+                    'description_template': 'Build ML models and interactive visualizations',
+                    'skills_focus': ['Python', 'Pandas', 'Scikit-learn', 'Plotly'],
+                    'difficulty': experience_level,
+                    'estimated_duration': '3-5 weeks'
+                })
+        
+        # Backend Projects
+        if any(skill in ['python', 'node', 'api', 'database'] for skill in skills):
+            if 'backend' in preferred_topics:
+                templates.append({
+                    'category': 'backend',
+                    'base_title': 'Scalable API Service',
+                    'description_template': 'RESTful API with authentication and real-time features',
+                    'skills_focus': ['Python/FastAPI', 'PostgreSQL', 'Redis', 'WebSockets'],
+                    'difficulty': experience_level,
+                    'estimated_duration': '3-4 weeks'
+                })
+        
+        # If no specific templates match, provide general ones
+        if not templates:
+            templates = self._get_general_templates(user_context)
+        
+        return templates
+    
+    def _save_user_interaction(
+        self, 
+        user_id: str, 
+        message: str, 
+        response: str, 
+        intent: str
+    ):
+        """Save user interaction for learning and personalization"""
+        
+        try:
+            # Update user preferences based on interaction
+            preferences = self.db.query(UserPreferences).filter(
+                UserPreferences.user_id == user_id
+            ).first()
+            
+            if not preferences:
+                preferences = UserPreferences(user_id=user_id)
+                self.db.add(preferences)
+            
+            # Update interaction count for intent
+            if hasattr(preferences, f'{intent}_count'):
+                current_count = getattr(preferences, f'{intent}_count', 0)
+                setattr(preferences, f'{intent}_count', current_count + 1)
+            
+            # Update last interaction
+            preferences.last_interaction = datetime.utcnow()
+            
+            self.db.commit()
+            
         except Exception as e:
-            return f"هەڵە: {str(e)}"
+            print(f"❌ Error saving user interaction: {e}")
+            self.db.rollback()
 
-def get_ai_service(db_session=None):
-    """Get AI service instance"""
-    return AIService(db_session)
+
+# New database model for user preferences
+class UserPreferences:
+    """Store user preferences and behavioral data"""
+    
+    def __init__(self, user_id: str):
+        self.user_id = user_id
+        self.technical_help_count = 0
+        self.project_planning_count = 0
+        self.learning_count = 0
+        self.preferred_response_style = 'balanced'
+        self.favorite_topics = []
+        self.last_interaction = datetime.utcnow()
+        self.created_at = datetime.utcnow()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'technical_help_count': self.technical_help_count,
+            'project_planning_count': self.project_planning_count,
+            'learning_count': self.learning_count,
+            'preferred_response_style': self.preferred_response_style,
+            'favorite_topics': self.favorite_topics,
+            'last_interaction': self.last_interaction
+        }
