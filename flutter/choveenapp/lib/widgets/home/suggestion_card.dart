@@ -48,7 +48,7 @@ class SuggestionCard extends StatelessWidget {
                         Text(
                           suggestion.type == 'project'
                               ? suggestion.project?.title ?? 'Project Suggestion'
-                              : suggestion.teamMember?.name ?? 'Team Member',
+                              : 'Team Member Suggestion',
                           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -171,7 +171,7 @@ class SuggestionCard extends StatelessWidget {
               child: Text(
                 suggestion.type == 'project'
                     ? suggestion.project?.title ?? 'Project'
-                    : suggestion.teamMember?.name ?? 'Team Member',
+                    : 'Team Member Suggestion',
               ),
             ),
           ],

@@ -4,12 +4,16 @@ class ChatInput extends StatefulWidget {
   final Function(String) onSendMessage;
   final bool isLoading;
   final String placeholder;
+  final String? hintText; // ✅ FIXED: Added for compatibility
+  final bool? enabled; // ✅ FIXED: Added for enabling/disabling
 
   const ChatInput({
     super.key,
     required this.onSendMessage,
     this.isLoading = false,
     this.placeholder = 'Type a message...',
+    this.hintText, // ✅ FIXED: Optional parameter
+    this.enabled, // ✅ FIXED: Optional parameter
   });
 
   @override
@@ -67,7 +71,7 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
 
   void _sendMessage() {
     final message = _controller.text.trim();
-    if (message.isNotEmpty && !widget.isLoading) {
+    if (message.isNotEmpty && !widget.isLoading && (widget.enabled ?? true)) {
       widget.onSendMessage(message);
       _controller.clear();
       _focusNode.requestFocus();
@@ -76,6 +80,10 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ FIXED: Use hintText if provided, otherwise use placeholder
+    final displayHint = widget.hintText ?? widget.placeholder;
+    final isEnabled = widget.enabled ?? true;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -90,7 +98,7 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Quick suggestions row (when input is empty)
-              if (!_hasText && !widget.isLoading)
+              if (!_hasText && !widget.isLoading && isEnabled)
                 _buildQuickSuggestions(),
               
               const SizedBox(height: 8),
@@ -99,19 +107,19 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
               Row(
                 children: [
                   // Attachment button
-                  _buildAttachmentButton(),
+                  if (isEnabled) _buildAttachmentButton(),
                   
-                  const SizedBox(width: 8),
+                  if (isEnabled) const SizedBox(width: 8),
                   
                   // Text input field
                   Expanded(
-                    child: _buildTextInput(),
+                    child: _buildTextInput(displayHint, isEnabled),
                   ),
                   
                   const SizedBox(width: 8),
                   
                   // Send button
-                  _buildSendButton(),
+                  _buildSendButton(isEnabled),
                 ],
               ),
               
@@ -188,7 +196,7 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildTextInput() {
+  Widget _buildTextInput(String hint, bool isEnabled) {
     return Container(
       constraints: const BoxConstraints(
         minHeight: 44,
@@ -210,10 +218,10 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
         maxLines: null,
         textCapitalization: TextCapitalization.sentences,
         textInputAction: TextInputAction.newline,
-        enabled: !widget.isLoading,
+        enabled: !widget.isLoading && isEnabled,
         onSubmitted: (_) => _sendMessage(),
         decoration: InputDecoration(
-          hintText: widget.placeholder,
+          hintText: hint,
           hintStyle: TextStyle(
             color: Colors.grey[500],
             fontSize: 15,
@@ -245,7 +253,7 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildSendButton() {
+  Widget _buildSendButton(bool isEnabled) {
     return AnimatedBuilder(
       animation: _scaleAnimation,
       builder: (context, child) {
@@ -255,16 +263,16 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              gradient: _hasText && !widget.isLoading
+              gradient: _hasText && !widget.isLoading && isEnabled
                   ? const LinearGradient(
                       colors: [Colors.purple, Colors.purpleAccent],
                     )
                   : null,
-              color: !_hasText || widget.isLoading
+              color: !_hasText || widget.isLoading || !isEnabled
                   ? Colors.grey.withOpacity(0.3)
                   : null,
               borderRadius: BorderRadius.circular(22),
-              boxShadow: _hasText && !widget.isLoading
+              boxShadow: _hasText && !widget.isLoading && isEnabled
                   ? [
                       BoxShadow(
                         color: Colors.purple.withOpacity(0.3),
@@ -275,10 +283,10 @@ class _ChatInputState extends State<ChatInput> with TickerProviderStateMixin {
                   : null,
             ),
             child: IconButton(
-              onPressed: (_hasText && !widget.isLoading) ? _sendMessage : null,
+              onPressed: (_hasText && !widget.isLoading && isEnabled) ? _sendMessage : null,
               icon: Icon(
                 widget.isLoading ? Icons.hourglass_empty : Icons.send,
-                color: (_hasText && !widget.isLoading) 
+                color: (_hasText && !widget.isLoading && isEnabled) 
                     ? Colors.white 
                     : Colors.grey[500],
                 size: 20,

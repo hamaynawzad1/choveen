@@ -1,3 +1,4 @@
+// lib/screens/home/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -5,6 +6,8 @@ import '../../providers/project_provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../models/project_model.dart';
 import '../../core/theme/app_colors.dart';
+import '../profile/profile_screen.dart';
+import '../ai_assistant/ai_chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -217,7 +220,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ✅ FIXED: Responsive Row
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -231,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          const SizedBox(width: 8), // Space buffer
+                          const SizedBox(width: 8),
                           ElevatedButton.icon(
                             onPressed: () {
                               final projectProvider = Provider.of<ProjectProvider>(context, listen: false);
@@ -293,7 +295,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   child: _buildRecentProjectsSection(),
                 ),
 
-                const SizedBox(height: 100), // Bottom padding for navigation
+                const SizedBox(height: 100),
               ],
             ),
           ),
@@ -428,12 +430,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ProjectDetailScreen(suggestion: suggestion),
-                      ),
-                    );
+                    _openProjectDetail(suggestion);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.purple,
@@ -450,7 +447,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Recent Projects Section
   Widget _buildRecentProjectsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -508,10 +504,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.1),
+                color: _getStatusColor(project.status).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.work, color: Colors.blue, size: 24),
+              child: Icon(Icons.work, color: _getStatusColor(project.status), size: 24),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -535,21 +531,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
+                          color: _getStatusColor(project.status).withOpacity(0.1),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
                           project.status.toUpperCase(), 
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12, 
-                            color: Colors.green, 
+                            color: _getStatusColor(project.status), 
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        '${project.teamMembers.length} members', 
+                        _formatDate(project.createdAt), 
                         style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                     ],
@@ -557,14 +553,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ],
               ),
             ),
-            // ✅ FIXED: Working AI Chat Button
             IconButton(
-              onPressed: () {
-                // Navigate to AI chat
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('🤖 AI Chat for "${project.title}" will be available soon!')),
-                );
-              },
+              onPressed: () => _openAIChat(project),
               icon: const Icon(Icons.chat, color: Colors.purple),
               tooltip: 'AI Chat',
             ),
@@ -576,8 +566,86 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // 📁 PROJECTS TAB
   Widget _buildProjectsTab() {
-    return const Center(
-      child: Text('Projects Tab - Coming Soon'),
+    return Consumer<ProjectProvider>(
+      builder: (context, projectProvider, child) {
+        return Column(
+          children: [
+            // Header
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(colors: [Colors.blue, Colors.blueAccent]),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'My Projects', 
+                    style: TextStyle(
+                      color: Colors.white, 
+                      fontSize: 28, 
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Manage and track your projects', 
+                    style: TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Projects List
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => projectProvider.fetchProjects(),
+                child: projectProvider.projects.isEmpty
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.work_outline, size: 64, color: Colors.grey),
+                            SizedBox(height: 16),
+                            Text('No projects yet'),
+                            SizedBox(height: 8),
+                            Text('Create your first project to get started'),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: projectProvider.projects.length,
+                        itemBuilder: (context, index) {
+                          final project = projectProvider.projects[index];
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            child: ListTile(
+                              leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: _getStatusColor(project.status).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(Icons.work, color: _getStatusColor(project.status)),
+                              ),
+                              title: Text(project.title),
+                              subtitle: Text(project.description, maxLines: 2),
+                              trailing: Text(
+                                project.category ?? 'General',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              onTap: () => _openProjectDetail(project),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -588,18 +656,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final projects = projectProvider.projects;
         
         if (projects.isEmpty) {
-          return Center(
+          return const Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.psychology, size: 64, color: Colors.grey[400]),
-                const SizedBox(height: 16),
-                const Text('No projects for AI assistance'),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: () => _tabController.animateTo(1),
-                  child: const Text('Create Project'),
-                ),
+                Icon(Icons.psychology, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text('No projects for AI assistance'),
+                SizedBox(height: 8),
+                Text('Create a project to start chatting with AI'),
               ],
             ),
           );
@@ -735,13 +800,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 'Ready to help with your project', 
                                 style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                               ),
-                              // ✅ FIXED: Working AI Chat Button
                               ElevatedButton.icon(
-                                onPressed: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('🤖 AI Chat for "${project.title}" will be available soon!')),
-                                  );
-                                },
+                                onPressed: () => _openAIChat(project),
                                 icon: const Icon(Icons.chat, size: 18),
                                 label: const Text('Start AI Chat'),
                                 style: ElevatedButton.styleFrom(
@@ -767,297 +827,111 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // 👤 PROFILE TAB
   Widget _buildProfileTab() {
-    return Consumer<AuthProvider>(
-      builder: (context, authProvider, child) {
-        final user = authProvider.user;
-        
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              const SizedBox(height: 40),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Colors.blue, Colors.blueAccent]),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  children: [
-                    CircleAvatar(
-                      radius: 50,
-                      backgroundColor: Colors.white,
-                      child: Text(
-                        (user?.name.isNotEmpty == true) ? user!.name.substring(0, 1).toUpperCase() : 'U',
-                        style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.blue),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      user?.name ?? 'Unknown User', 
-                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      user?.email ?? 'No email',
-                      style: const TextStyle(color: Colors.white70, fontSize: 16),
-                    ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Profile Options
-              _buildProfileOption('Edit Profile', Icons.edit, () {}),
-              _buildProfileOption('Settings', Icons.settings, () {}),
-              _buildProfileOption('Help & Support', Icons.help, () {}),
-              _buildProfileOption('Logout', Icons.logout, () {
-                authProvider.logout();
-              }),
-            ],
-          ),
-        );
-      },
-    );
+    return const EnhancedProfileScreen();
   }
 
-  Widget _buildProfileOption(String title, IconData icon, VoidCallback onTap) {
-    return ListTile(
-      leading: Icon(icon, color: AppColors.primary),
-      title: Text(title),
-      trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-      onTap: onTap,
-    );
+  // Helper methods
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return Colors.green;
+      case 'completed':
+        return Colors.blue;
+      case 'on_hold':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
   }
-}
 
-// ✅ NEW: Project Detail Screen
-class ProjectDetailScreen extends StatelessWidget {
-  final dynamic suggestion;
-
-  const ProjectDetailScreen({super.key, required this.suggestion});
-
-  @override
-  Widget build(BuildContext context) {
-    final project = suggestion.project;
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
     
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(project?.title ?? 'Project Details'),
-        backgroundColor: Colors.purple,
-        foregroundColor: Colors.white,
+    if (difference.inDays > 7) {
+      return '${date.day}/${date.month}/${date.year}';
+    } else if (difference.inDays > 0) {
+      return '${difference.inDays} days ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours} hours ago';
+    } else {
+      return 'Recently';
+    }
+  }
+
+  void _openAIChat(Project project) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AIChatScreen(project: project),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Project Info Card
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.auto_awesome, color: Colors.purple, size: 32),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                project?.title ?? 'Project',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  'AI Match: ${(suggestion.matchScore * 100).toInt()}%',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Description',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      project?.description ?? suggestion.description,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey[700],
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+    );
+  }
 
-            const SizedBox(height: 16),
-
-            // Skills Required
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Required Skills',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: (project?.requiredSkills ?? []).map<Widget>((skill) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                          ),
-                          child: Text(
-                            skill,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Project Details
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    _buildDetailRow('Timeline', suggestion.timeline),
-                    const Divider(),
-                    _buildDetailRow('Difficulty', suggestion.difficulty),
-                    const Divider(),
-                    _buildDetailRow('Type', suggestion.type.toUpperCase()),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Action Buttons
-            Row(
+  void _openProjectDetail(dynamic projectOrSuggestion) {
+    // Handle both Project and Suggestion objects
+    final project = projectOrSuggestion is Project 
+        ? projectOrSuggestion 
+        : projectOrSuggestion.project;
+    
+    if (project != null) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(project.title),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      // Start project logic
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('🚀 Project started! Check your projects tab.')),
-                      );
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.rocket_launch),
-                    label: const Text('Start Project'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.purple,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('🤖 AI Chat will be available soon!')),
-                      );
-                    },
-                    icon: const Icon(Icons.chat),
-                    label: const Text('AI Chat'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
+                Text(project.description),
+                const SizedBox(height: 16),
+                const Text('Required Skills:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: project.requiredSkills.map((skill) => Chip(label: Text(skill))).toList(),
                 ),
               ],
             ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _joinProject(project);
+              },
+              child: const Text('Join Project'),
+            ),
           ],
         ),
-      ),
-    );
+      );
+    }
   }
 
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
-            ),
+  void _joinProject(Project project) {
+    final projectProvider = Provider.of<ProjectProvider>(context, listen: false);
+    
+    projectProvider.joinProject(project.id, project.title).then((success) {
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully joined "${project.title}"!'),
+            backgroundColor: Colors.green,
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to join project'),
+            backgroundColor: Colors.red,
           ),
-        ],
-      ),
-    );
+        );
+      }
+    });
   }
 }

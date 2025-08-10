@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:io';
-import 'dart:convert';
 import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../core/theme/app_colors.dart';
@@ -32,7 +31,6 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
   final TextEditingController _skillController = TextEditingController();
   List<String> _tempSkills = [];
   File? _selectedImage;
-  String? _selectedImagePath;
 
   @override
   void initState() {
@@ -73,6 +71,9 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     if (user != null) {
       _nameController.text = user.name;
       _tempSkills = List<String>.from(user.skills);
+      print('👤 Loaded user data: ${user.name}, Skills: ${user.skills}');
+    } else {
+      print('❌ No user data available');
     }
   }
 
@@ -90,6 +91,22 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
       body: Consumer2<AuthProvider, ThemeProvider>(
         builder: (context, authProvider, themeProvider, child) {
           final user = authProvider.user;
+          
+          // Debug info
+          print('🔍 Profile screen build - User: ${user?.name}, Authenticated: ${authProvider.isAuthenticated}');
+          
+          if (user == null) {
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.person_off, size: 64, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text('No user data available'),
+                ],
+              ),
+            );
+          }
           
           return CustomScrollView(
             slivers: [
@@ -123,7 +140,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     );
   }
 
-  Widget _buildAppBar(BuildContext context, dynamic user, ThemeProvider themeProvider) {
+  Widget _buildAppBar(BuildContext context, user, ThemeProvider themeProvider) {
     return SliverAppBar(
       expandedHeight: 120,
       floating: false,
@@ -171,12 +188,12 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
             icon: const Icon(Icons.more_vert),
             itemBuilder: (context) => [
               const PopupMenuItem(
-                value: 'settings',
+                value: 'refresh',
                 child: Row(
                   children: [
-                    Icon(Icons.settings),
+                    Icon(Icons.refresh),
                     SizedBox(width: 8),
-                    Text('Settings'),
+                    Text('Refresh'),
                   ],
                 ),
               ),
@@ -192,8 +209,8 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
               ),
             ],
             onSelected: (value) {
-              if (value == 'settings') {
-                _showAdvancedSettings();
+              if (value == 'refresh') {
+                _refreshProfile();
               } else if (value == 'help') {
                 _showHelpDialog();
               }
@@ -204,7 +221,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     );
   }
 
-  Widget _buildProfileHeader(dynamic user, ThemeProvider themeProvider) {
+  Widget _buildProfileHeader(user, ThemeProvider themeProvider) {
     return Container(
       margin: const EdgeInsets.all(20),
       child: Column(
@@ -343,7 +360,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     );
   }
 
-  Widget _buildProfileImage(dynamic user) {
+  Widget _buildProfileImage(user) {
     // Check for selected image first
     if (_selectedImage != null) {
       return Image.file(
@@ -370,7 +387,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     return _buildDefaultAvatar(user);
   }
 
-  Widget _buildDefaultAvatar(dynamic user) {
+  Widget _buildDefaultAvatar(user) {
     return Container(
       width: 120,
       height: 120,
@@ -396,7 +413,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     );
   }
 
-  Widget _buildStatsSection(dynamic user) {
+  Widget _buildStatsSection(user) {
     final stats = [
       {'icon': Icons.emoji_events, 'label': 'Projects', 'value': '5', 'color': Colors.orange},
       {'icon': Icons.people, 'label': 'Team Size', 'value': '12', 'color': Colors.blue},
@@ -468,7 +485,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     );
   }
 
-  Widget _buildSkillsSection(dynamic user) {
+  Widget _buildSkillsSection(user) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
       child: Card(
@@ -508,7 +525,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     );
   }
 
-  Widget _buildSkillsDisplay(dynamic user) {
+  Widget _buildSkillsDisplay(user) {
     final skills = user?.skills ?? ['No skills added'];
     
     return Wrap(
@@ -631,35 +648,11 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
             ),
             const Divider(height: 1),
             _buildSettingsTile(
-              icon: Icons.privacy_tip,
-              title: 'Privacy',
-              subtitle: 'Privacy and security settings',
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _showPrivacySettings,
-            ),
-            const Divider(height: 1),
-            _buildSettingsTile(
-              icon: Icons.language,
-              title: 'Language',
-              subtitle: 'English (US)',
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _showLanguageSettings,
-            ),
-            const Divider(height: 1),
-            _buildSettingsTile(
               icon: Icons.help,
               title: 'Help & Support',
               subtitle: 'Get help and contact support',
               trailing: const Icon(Icons.chevron_right),
               onTap: _showHelpDialog,
-            ),
-            const Divider(height: 1),
-            _buildSettingsTile(
-              icon: Icons.info,
-              title: 'About',
-              subtitle: 'App version and information',
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _showAboutDialog,
             ),
           ],
         ),
@@ -760,40 +753,46 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       
-      // Prepare image path
-      String? imagePath;
-      if (_selectedImage != null) {
-        // In a real app, you would upload the image to a server
-        // For now, we'll use the local path
-        imagePath = _selectedImage!.path;
-      }
-
-      await authProvider.updateUserProfile(
+      print('💾 Saving profile...');
+      print('📝 Name: ${_nameController.text.trim()}');
+      print('🛠️ Skills: $_tempSkills');
+      
+      final success = await authProvider.updateUserProfile(
         name: _nameController.text.trim(),
         skills: _tempSkills,
-        profileImage: imagePath,
+        profileImage: _selectedImage?.path,
       );
 
       if (mounted) {
-        setState(() {
-          _isEditMode = false;
-          _selectedImage = null;
-        });
+        if (success) {
+          setState(() {
+            _isEditMode = false;
+            _selectedImage = null;
+          });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Profile updated successfully!'),
-              ],
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Profile updated successfully!'),
+                ],
+              ),
+              backgroundColor: AppColors.success,
             ),
-            backgroundColor: AppColors.success,
-          ),
-        );
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to update profile: ${authProvider.error}'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
       }
     } catch (e) {
+      print('❌ Profile save error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -808,6 +807,24 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _refreshProfile() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    try {
+      await authProvider.getCurrentUser();
+      _loadUserData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile refreshed'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Refresh error: $e');
     }
   }
 
@@ -848,8 +865,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
                         await _pickImageFromSource(ImageSource.gallery);
                       },
                     ),
-                    if (_selectedImage != null || 
-                        (Provider.of<AuthProvider>(context, listen: false).user?.profileImage?.isNotEmpty == true))
+                    if (_selectedImage != null)
                       _buildImageOption(
                         icon: Icons.delete,
                         label: 'Remove',
@@ -869,7 +885,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
         ),
       );
     } catch (e) {
-      print('Error showing image picker: $e');
+      print('📱 Image picker error: $e');
     }
   }
 
@@ -925,7 +941,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     }
   }
 
-  void _showImageDialog(dynamic user) {
+  void _showImageDialog(user) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -951,9 +967,8 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
         ),
       ),
     );
-  }
 
-  void _addSkill(String skill) {
+    void _addSkill(String skill) {
     if (skill.trim().isNotEmpty && !_tempSkills.contains(skill.trim())) {
       setState(() {
         _tempSkills.add(skill.trim());
@@ -1025,9 +1040,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
                 
                 if (mounted) {
                   Navigator.of(context).popUntil((route) => route.isFirst);
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                  );
+                  Navigator.of(context).pushReplacementNamed('/login');
                 }
               } catch (e) {
                 if (mounted) {
@@ -1035,13 +1048,13 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Logout failed: $e'),
-                      backgroundColor: AppColors.error,
+                      backgroundColor: Colors.red,
                     ),
                   );
                 }
               }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Logout'),
           ),
         ],
@@ -1049,14 +1062,13 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     );
   }
 
-  // Settings dialogs
   void _showNotificationSettings() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.notifications, color: AppColors.primary),
+            Icon(Icons.notifications, color: Colors.blue),
             SizedBox(width: 8),
             Text('Notification Settings'),
           ],
@@ -1069,139 +1081,21 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
               subtitle: const Text('Receive push notifications'),
               value: true,
               onChanged: (value) {},
-              activeColor: AppColors.primary,
+              activeColor: Colors.blue,
             ),
             SwitchListTile(
               title: const Text('Email Notifications'),
               subtitle: const Text('Receive email notifications'),
               value: false,
               onChanged: (value) {},
-              activeColor: AppColors.primary,
+              activeColor: Colors.blue,
             ),
             SwitchListTile(
               title: const Text('Project Updates'),
               subtitle: const Text('Notifications for project updates'),
               value: true,
               onChanged: (value) {},
-              activeColor: AppColors.primary,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showPrivacySettings() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.privacy_tip, color: AppColors.primary),
-            SizedBox(width: 8),
-            Text('Privacy Settings'),
-          ],
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Privacy Controls:', style: TextStyle(fontWeight: FontWeight.bold)),
-            SizedBox(height: 12),
-            Text('• Profile visibility: Team members only'),
-            Text('• Data sharing: Disabled by default'),
-            Text('• Activity tracking: Essential only'),
-            Text('• Third-party access: Restricted'),
-            SizedBox(height: 16),
-            Text('Your data is encrypted and stored securely.'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showLanguageSettings() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Language Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<String>(
-              title: const Text('English'),
-              value: 'en',
-              groupValue: 'en',
-              onChanged: (value) {},
-              activeColor: AppColors.primary,
-            ),
-            RadioListTile<String>(
-              title: const Text('Kurdish'),
-              value: 'ku',
-              groupValue: 'en',
-              onChanged: (value) {},
-              activeColor: AppColors.primary,
-            ),
-            RadioListTile<String>(
-              title: const Text('Arabic'),
-              value: 'ar',
-              groupValue: 'en',
-              onChanged: (value) {},
-              activeColor: AppColors.primary,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showAdvancedSettings() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Advanced Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.sync),
-              title: const Text('Sync Data'),
-              subtitle: const Text('Sync with cloud'),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(Icons.storage),
-              title: const Text('Storage'),
-              subtitle: const Text('Manage local storage'),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(Icons.backup),
-              title: const Text('Backup'),
-              subtitle: const Text('Backup & restore'),
-              onTap: () {},
+              activeColor: Colors.blue,
             ),
           ],
         ),
@@ -1221,7 +1115,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
       builder: (context) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.help_outline, color: AppColors.primary),
+            Icon(Icons.help_outline, color: Colors.blue),
             SizedBox(width: 8),
             Text('Help & Support'),
           ],
@@ -1261,38 +1155,6 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     );
   }
 
-  void _showAboutDialog() {
-    showAboutDialog(
-      context: context,
-      applicationName: 'Choveen',
-      applicationVersion: '1.0.0',
-      applicationLegalese: '© 2025 Choveen Team. All rights reserved.',
-      applicationIcon: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: const BoxDecoration(
-          color: AppColors.primary,
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.work, color: Colors.white, size: 24),
-      ),
-      children: const [
-        Padding(
-          padding: EdgeInsets.only(top: 15),
-          child: Text(
-            'Choveen is a modern project management application with AI assistance. '
-            'Built with Flutter and enhanced with intelligent features.',
-          ),
-        ),
-        SizedBox(height: 12),
-        Text('✨ AI-powered project suggestions'),
-        Text('🚀 Modern UI/UX design'),
-        Text('💡 Smart team collaboration'),
-        Text('🔒 Secure data handling'),
-        Text('🌟 Enhanced user experience'),
-      ],
-    );
-  }
-
   String _formatDate(DateTime date) {
     final months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -1301,4 +1163,26 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
     
     return '${months[date.month - 1]} ${date.year}';
   }
+  }
+}
+
+class _formatDate {
+  _formatDate(createdAt);
+}
+
+class _showAddSkillDialog {
+}
+
+class _addSkill {
+  _addSkill(String text);
+}
+
+class _showNotificationSettings {
+}
+
+class _showLogoutDialog {
+  _showLogoutDialog(AuthProvider authProvider);
+}
+
+class _showHelpDialog {
 }

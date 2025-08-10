@@ -5,50 +5,65 @@ import '../../models/message_model.dart';
 class MessageBubble extends StatelessWidget {
   final Message message;
   final bool isMe;
+  final bool? isCurrentUser; // ✅ FIXED: Added for compatibility
+  final bool? isAI; // ✅ FIXED: Added for AI detection
+  final bool? showAvatar; // ✅ FIXED: Added for avatar control
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.isMe,
+    this.isCurrentUser, // ✅ FIXED: Optional parameter
+    this.isAI,
+    this.showAvatar,
   });
 
   @override
   Widget build(BuildContext context) {
+    // ✅ FIXED: Determine message properties
+    final bool isCurrentUserMessage = isCurrentUser ?? isMe;
+    final bool isAIMessage = isAI ?? message.isAI;
+    final bool shouldShowAvatar = showAvatar ?? true;
+
     return Container(
       margin: EdgeInsets.only(
         top: 4,
         bottom: 4,
-        left: isMe ? 50 : 0,
-        right: isMe ? 0 : 50,
+        left: isCurrentUserMessage ? 50 : 0,
+        right: isCurrentUserMessage ? 0 : 50,
       ),
       child: Row(
-        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isCurrentUserMessage ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!isMe) _buildAvatarSection(),
-          if (!isMe) const SizedBox(width: 8),
-          Flexible(child: _buildMessageBubble(context)),
-          if (isMe) const SizedBox(width: 8),
-          if (isMe) _buildUserAvatar(),
+          if (!isCurrentUserMessage && shouldShowAvatar) _buildAvatarSection(isAIMessage),
+          if (!isCurrentUserMessage && shouldShowAvatar) const SizedBox(width: 8),
+          Flexible(child: _buildMessageBubble(context, isCurrentUserMessage, isAIMessage)),
+          if (isCurrentUserMessage && shouldShowAvatar) const SizedBox(width: 8),
+          if (isCurrentUserMessage && shouldShowAvatar) _buildUserAvatar(),
         ],
       ),
     );
   }
 
-  Widget _buildAvatarSection() {
+  Widget _buildAvatarSection(bool isAI) {
     return Column(
       children: [
         Container(
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Colors.purple, Colors.purpleAccent],
-            ),
+            gradient: isAI 
+                ? const LinearGradient(
+                    colors: [Colors.purple, Colors.purpleAccent],
+                  )
+                : const LinearGradient(
+                    colors: [Colors.blue, Colors.blueAccent],
+                  ),
             borderRadius: BorderRadius.circular(16),
           ),
-          child: const Icon(
-            Icons.psychology,
+          child: Icon(
+            isAI ? Icons.psychology : Icons.person,
             color: Colors.white,
             size: 18,
           ),
@@ -82,14 +97,12 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildMessageBubble(BuildContext context) {
-    final isAI = message.senderId == 'ai_assistant';
-    
+  Widget _buildMessageBubble(BuildContext context, bool isCurrentUser, bool isAI) {
     return GestureDetector(
       onLongPress: () => _showMessageOptions(context),
       child: Container(
         decoration: BoxDecoration(
-          color: isMe 
+          color: isCurrentUser 
               ? Colors.blue 
               : (isAI ? Colors.grey[50] : Colors.white),
           border: isAI 
@@ -98,8 +111,8 @@ class MessageBubble extends StatelessWidget {
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 4),
-            bottomRight: Radius.circular(isMe ? 4 : 16),
+            bottomLeft: Radius.circular(isCurrentUser ? 16 : 4),
+            bottomRight: Radius.circular(isCurrentUser ? 4 : 16),
           ),
           boxShadow: [
             BoxShadow(
@@ -121,9 +134,9 @@ class MessageBubble extends StatelessWidget {
                   if (isAI)
                     _buildFormattedAIContent()
                   else
-                    _buildRegularMessage(),
+                    _buildRegularMessage(isCurrentUser),
                   const SizedBox(height: 6),
-                  _buildMessageFooter(),
+                  _buildMessageFooter(isCurrentUser),
                 ],
               ),
             ),
@@ -289,18 +302,18 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildRegularMessage() {
+  Widget _buildRegularMessage(bool isCurrentUser) {
     return Text(
       message.content,
       style: TextStyle(
         fontSize: 15,
-        color: isMe ? Colors.white : Colors.black87,
+        color: isCurrentUser ? Colors.white : Colors.black87,
         height: 1.3,
       ),
     );
   }
 
-  Widget _buildMessageFooter() {
+  Widget _buildMessageFooter(bool isCurrentUser) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -308,10 +321,10 @@ class MessageBubble extends StatelessWidget {
           _formatTime(message.createdAt),
           style: TextStyle(
             fontSize: 11,
-            color: isMe ? Colors.white70 : Colors.grey[600],
+            color: isCurrentUser ? Colors.white70 : Colors.grey[600],
           ),
         ),
-        if (isMe) ...[
+        if (isCurrentUser) ...[
           const SizedBox(width: 4),
           const Icon(
             Icons.done_all,
@@ -365,7 +378,6 @@ class MessageBubble extends StatelessWidget {
                 title: const Text('Regenerate Response'),
                 onTap: () {
                   Navigator.pop(context);
-                  // TODO: Implement regenerate functionality
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Regenerating response...')),
                   );

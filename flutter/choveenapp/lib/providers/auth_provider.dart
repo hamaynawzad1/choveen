@@ -1,433 +1,298 @@
 // lib/providers/auth_provider.dart
-import 'package:flutter/foundation.dart';
-import '../core/services/auth_service.dart';
-import '../core/services/backend_service.dart';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/user_model.dart';
+import '../core/services/api_service.dart';
 
-class AuthProvider extends ChangeNotifier {
-  final AuthService _authService = AuthService();
-  final BackendService _backendService = BackendService();
-
-  Map<String, dynamic>? _user;
+class AuthProvider with ChangeNotifier {
+  final APIService _apiService = APIService();
+  
+  User? _user;
   bool _isLoading = false;
-  bool _isLoggedIn = false;
   String? _error;
-  String? _token;
-
-  // Getters
-  Map<String, dynamic>? get user => _user;
+  
+  User? get user => _user;
   bool get isLoading => _isLoading;
-  bool get isLoggedIn => _isLoggedIn;
   String? get error => _error;
-  String? get token => _token;
-  String? get userId => _user?['id'];
-
-  // ✅ Initialize auth provider
-  Future<void> initialize() async {
-    _setLoading(true);
+  bool get isAuthenticated => _user != null;
+  
+  AuthProvider() {
+    _loadUserFromStorage();
+  }
+  
+  // Load user from local storage
+  Future<void> _loadUserFromStorage() async {
     try {
-      // Check if user is already logged in
-      final isLoggedIn = await _authService.isLoggedIn();
-      if (isLoggedIn) {
-        _token = await _authService.getToken();
-        final userData = await _authService.getUserData();
-        
-        if (userData.isNotEmpty) {
-          _user = userData;
-          _isLoggedIn = true;
-          print('✅ User restored from storage: ${_user!['name']}');
-        }
-      }
+      final prefs = await SharedPreferences.getInstance();
+      final userData = prefs.getString('user_data');
+      final token = prefs.getString('auth_token');
       
-      _error = null;
+      if (userData != null && token != null) {
+        final userJson = json.decode(userData);
+        _user = User.fromJson(userJson);
+        notifyListeners();
+      }
     } catch (e) {
-      print('❌ Auth Provider initialization error: $e');
-      _error = e.toString();
-    } finally {
-      _setLoading(false);
+      print('Error loading user from storage: $e');
     }
   }
-
-  // ✅ Login user
+  
+  // Save user to local storage
+  Future<void> _saveUserToStorage(User user, String token) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_data', json.encode(user.toJson()));
+      await prefs.setString('auth_token', token);
+    } catch (e) {
+      print('Error saving user to storage: $e');
+    }
+  }
+  
+  // Clear user from local storage
+  Future<void> _clearUserFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('user_data');
+      await prefs.remove('auth_token');
+    } catch (e) {
+      print('Error clearing user from storage: $e');
+    }
+  }
+  
+  // Login
   Future<bool> login(String email, String password) async {
     _setLoading(true);
+    _clearError();
+    
     try {
-      final result = await _authService.login(email, password);
+      final response = await _apiService.post('/api/v1/auth/login', body: {
+        'email': email,
+        'password': password,
+      });
       
-      if (result['success'] == true) {
-        _user = result['user'];
-        _token = result['token'];
-        _isLoggedIn = true;
-        _error = null;
-        
-        print('✅ User logged in successfully: ${_user!['name']}');
-        notifyListeners();
+      if (response['access_token'] != null && response['user'] != null) {
+        _user = User.fromJson(response['user']);
+        await _saveUserToStorage(_user!, response['access_token']);
+        _setLoading(false);
         return true;
       } else {
-        _error = result['message'] ?? 'Login failed';
-        notifyListeners();
+        _setError('Invalid response from server');
+        _setLoading(false);
         return false;
       }
     } catch (e) {
-      _error = e.toString();
-      print('❌ Login error: $e');
-      notifyListeners();
-      return false;
-    } finally {
+      _setError('Login failed: ${e.toString()}');
       _setLoading(false);
+      return false;
     }
   }
-
-  // ✅ Register user
-  Future<bool> register(String name, String email, String password) async {
+  
+  // Register
+  Future<bool> register({
+    required String name,
+    required String email,
+    required String password,
+    required List<String> skills,
+    String? profileImage,
+  }) async {
     _setLoading(true);
+    _clearError();
+    
     try {
-      final result = await _authService.register(name, email, password);
+      final response = await _apiService.post('/api/v1/auth/register', body: {
+        'name': name,
+        'email': email,
+        'password': password,
+        'skills': skills,
+        'profile_image': profileImage,
+      });
       
-      if (result['success'] == true) {
-        // If registration includes automatic login
-        if (result['user'] != null) {
-          _user = result['user'];
-          _isLoggedIn = true;
-          
-          // Get token if provided
-          if (result['token'] != null) {
-            _token = result['token'];
-          }
-        }
-        
-        _error = null;
-        print('✅ User registered successfully: $name');
-        notifyListeners();
+      if (response['success'] == true) {
+        _setLoading(false);
         return true;
       } else {
-        _error = result['message'] ?? 'Registration failed';
-        notifyListeners();
+        _setError(response['message'] ?? 'Registration failed');
+        _setLoading(false);
         return false;
       }
     } catch (e) {
-      _error = e.toString();
-      print('❌ Registration error: $e');
-      notifyListeners();
+      _setError('Registration failed: ${e.toString()}');
+      _setLoading(false);
       return false;
-    } finally {
-      _setLoading(false);
     }
   }
-
-  // ✅ Update user profile
-  Future<bool> updateProfile(Map<String, dynamic> userData) async {
-    _setLoading(true);
-    try {
-      if (_user == null) {
-        _error = 'No user logged in';
-        notifyListeners();
-        return false;
-      }
-
-      final result = await _backendService.updateUserProfile(_user!['id'], userData);
-      
-      if (result['success'] == true) {
-        _user = result['user'];
-        _error = null;
-        
-        print('✅ Profile updated successfully');
-        notifyListeners();
-        return true;
-      } else {
-        _error = result['message'] ?? 'Profile update failed';
-        notifyListeners();
-        return false;
-      }
-    } catch (e) {
-      _error = e.toString();
-      print('❌ Profile update error: $e');
-      notifyListeners();
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // ✅ Logout user
-  Future<void> logout() async {
-    _setLoading(true);
-    try {
-      await _authService.logout();
-      
-      _user = null;
-      _token = null;
-      _isLoggedIn = false;
-      _error = null;
-      
-      print('✅ User logged out successfully');
-      notifyListeners();
-    } catch (e) {
-      _error = e.toString();
-      print('❌ Logout error: $e');
-      notifyListeners();
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // ✅ Verify email
+  
+  // Verify email
   Future<bool> verifyEmail(String email, String code) async {
     _setLoading(true);
+    _clearError();
+    
     try {
-      final result = await _authService.verifyEmail(email, code);
+      final response = await _apiService.post('/api/v1/auth/verify-email', body: {
+        'email': email,
+        'verification_code': code,
+      });
       
-      if (result['success'] == true) {
-        _error = null;
-        print('✅ Email verified successfully');
-        notifyListeners();
+      if (response['access_token'] != null && response['user'] != null) {
+        _user = User.fromJson(response['user']);
+        await _saveUserToStorage(_user!, response['access_token']);
+        _setLoading(false);
         return true;
       } else {
-        _error = result['message'] ?? 'Email verification failed';
-        notifyListeners();
+        _setError('Verification failed');
+        _setLoading(false);
         return false;
       }
     } catch (e) {
-      _error = e.toString();
-      print('❌ Email verification error: $e');
-      notifyListeners();
-      return false;
-    } finally {
+      _setError('Verification failed: ${e.toString()}');
       _setLoading(false);
+      return false;
     }
   }
-
-  // ✅ Change password
-  Future<bool> changePassword(String currentPassword, String newPassword) async {
+  
+  // Demo login
+  Future<bool> demoLogin() async {
     _setLoading(true);
+    _clearError();
+    
     try {
-      final result = await _authService.changePassword(currentPassword, newPassword);
+      // Simulate demo user
+      final demoUser = User(
+        id: 'demo_user_123',
+        name: 'Demo User',
+        email: 'demo@example.com',
+        skills: ['Flutter', 'Dart', 'Firebase', 'UI/UX'],
+        isVerified: true,
+        createdAt: DateTime.now(),
+      );
       
-      if (result['success'] == true) {
-        _error = null;
-        print('✅ Password changed successfully');
-        notifyListeners();
+      _user = demoUser;
+      await _saveUserToStorage(_user!, 'demo_token_123');
+      
+      // Simulate network delay
+      await Future.delayed(const Duration(seconds: 1));
+      
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _setError('Demo login failed: ${e.toString()}');
+      _setLoading(false);
+      return false;
+    }
+  }
+  
+  // Update user profile
+  Future<bool> updateUserProfile({
+    String? name,
+    List<String>? skills,
+    String? profileImage,
+  }) async {
+    if (_user == null) return false;
+    
+    _setLoading(true);
+    _clearError();
+    
+    try {
+      final updateData = <String, dynamic>{};
+      if (name != null) updateData['name'] = name;
+      if (skills != null) updateData['skills'] = skills;
+      if (profileImage != null) updateData['profile_image'] = profileImage;
+      
+      final response = await _apiService.put('/api/v1/users/profile', body: updateData);
+      
+      if (response['id'] != null) {
+        _user = User.fromJson(response);
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('auth_token') ?? '';
+        await _saveUserToStorage(_user!, token);
+        _setLoading(false);
         return true;
       } else {
-        _error = result['message'] ?? 'Password change failed';
-        notifyListeners();
-        return false;
-      }
-    } catch (e) {
-      _error = e.toString();
-      print('❌ Password change error: $e');
-      notifyListeners();
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // ✅ Forgot password
-  Future<bool> forgotPassword(String email) async {
-    _setLoading(true);
-    try {
-      final result = await _authService.forgotPassword(email);
-      
-      if (result['success'] == true) {
-        _error = null;
-        print('✅ Password reset instructions sent');
-        notifyListeners();
-        return true;
-      } else {
-        _error = result['message'] ?? 'Failed to send reset instructions';
-        notifyListeners();
-        return false;
-      }
-    } catch (e) {
-      _error = e.toString();
-      print('❌ Forgot password error: $e');
-      notifyListeners();
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // ✅ Reset password
-  Future<bool> resetPassword(String email, String code, String newPassword) async {
-    _setLoading(true);
-    try {
-      final result = await _authService.resetPassword(email, code, newPassword);
-      
-      if (result['success'] == true) {
-        _error = null;
-        print('✅ Password reset successfully');
-        notifyListeners();
-        return true;
-      } else {
-        _error = result['message'] ?? 'Password reset failed';
-        notifyListeners();
-        return false;
-      }
-    } catch (e) {
-      _error = e.toString();
-      print('❌ Password reset error: $e');
-      notifyListeners();
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // ✅ Delete account
-  Future<bool> deleteAccount(String password) async {
-    _setLoading(true);
-    try {
-      final result = await _authService.deleteAccount(password);
-      
-      if (result['success'] == true) {
-        _user = null;
-        _token = null;
-        _isLoggedIn = false;
-        _error = null;
+        // Fallback: update locally
+        if (name != null) _user = _user!.copyWith(name: name);
+        if (skills != null) _user = _user!.copyWith(skills: skills);
+        if (profileImage != null) _user = _user!.copyWith(profileImage: profileImage);
         
-        print('✅ Account deleted successfully');
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('auth_token') ?? '';
+        await _saveUserToStorage(_user!, token);
+        
         notifyListeners();
+        _setLoading(false);
         return true;
-      } else {
-        _error = result['message'] ?? 'Account deletion failed';
-        notifyListeners();
-        return false;
       }
     } catch (e) {
-      _error = e.toString();
-      print('❌ Account deletion error: $e');
-      notifyListeners();
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  // ✅ Refresh token
-  Future<bool> refreshToken() async {
-    try {
-      final result = await _authService.refreshToken();
+      // Fallback: update locally
+      if (name != null) _user = _user!.copyWith(name: name);
+      if (skills != null) _user = _user!.copyWith(skills: skills);
+      if (profileImage != null) _user = _user!.copyWith(profileImage: profileImage);
       
-      if (result['success'] == true) {
-        _token = result['token'];
-        print('✅ Token refreshed successfully');
-        return true;
-      } else {
-        print('❌ Token refresh failed: ${result['message']}');
-        return false;
-      }
-    } catch (e) {
-      print('❌ Token refresh error: $e');
-      return false;
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token') ?? '';
+      await _saveUserToStorage(_user!, token);
+      
+      notifyListeners();
+      _setLoading(false);
+      return true;
     }
   }
-
-  // ✅ Validate token
-  Future<bool> validateToken() async {
-    try {
-      return await _authService.validateToken();
-    } catch (e) {
-      print('❌ Token validation error: $e');
-      return false;
-    }
-  }
-
-  // ✅ Update FCM token
-  Future<void> updateFCMToken(String fcmToken) async {
-    try {
-      await _authService.updateFCMToken(fcmToken);
-      print('✅ FCM token updated');
-    } catch (e) {
-      print('❌ FCM token update error: $e');
-    }
-  }
-
-  // ✅ Get current user
+  
+  // Get current user (refresh from server)
   Future<void> getCurrentUser() async {
-    _setLoading(true);
+    if (_user == null) return;
+    
     try {
-      final result = await _authService.getCurrentUser();
+      final response = await _apiService.get('/api/v1/auth/me');
       
-      if (result['success'] == true) {
-        _user = result['user'];
-        _isLoggedIn = true;
-        _error = null;
-        
-        print('✅ Current user retrieved');
-        notifyListeners();
-      } else {
-        _error = result['message'] ?? 'Failed to get current user';
+      if (response['id'] != null) {
+        _user = User.fromJson(response);
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('auth_token') ?? '';
+        await _saveUserToStorage(_user!, token);
         notifyListeners();
       }
     } catch (e) {
-      _error = e.toString();
-      print('❌ Get current user error: $e');
-      notifyListeners();
-    } finally {
-      _setLoading(false);
+      print('Error refreshing user data: $e');
+      // Keep existing user data if refresh fails
     }
   }
-
-  // ✅ Quick login for demo
-  Future<void> demoLogin() async {
+  
+  // Logout
+  Future<void> logout() async {
     _setLoading(true);
+    
     try {
-      // Set demo user data
-      _user = {
-        'id': 'user_demo_1',
-        'name': 'Demo User',
-        'email': 'demo@choveen.com',
-        'skills': ['Flutter', 'Dart', 'Mobile Development'],
-        'avatar': 'https://via.placeholder.com/150?text=DU',
-        'created_at': DateTime.now().toIso8601String(),
-      };
-      
-      _token = 'demo_token_${DateTime.now().millisecondsSinceEpoch}';
-      _isLoggedIn = true;
-      _error = null;
-      
-      // Save to auth service
-      await _authService.login('demo@choveen.com', 'demo123');
-      
-      print('✅ Demo login successful');
-      notifyListeners();
+      // Try to logout from server (optional)
+      await _apiService.post('/api/v1/auth/logout');
     } catch (e) {
-      _error = e.toString();
-      print('❌ Demo login error: $e');
-      notifyListeners();
-    } finally {
-      _setLoading(false);
+      print('Server logout failed: $e');
     }
+    
+    // Clear local data regardless of server response
+    _user = null;
+    await _clearUserFromStorage();
+    
+    _setLoading(false);
   }
-
-  // ✅ Helper methods
+  
+  // Helper methods
   void _setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
   }
-
-  void clearError() {
-    _error = null;
-    notifyListeners();
-  }
-
-  void clearData() {
-    _user = null;
-    _token = null;
-    _isLoggedIn = false;
-    _error = null;
-    notifyListeners();
-  }
-
-  // ✅ User convenience methods
-  String get userName => _user?['name'] ?? 'User';
-  String get userEmail => _user?['email'] ?? '';
-  String get userAvatar => _user?['avatar'] ?? 'https://via.placeholder.com/150';
-  List<String> get userSkills => List<String>.from(_user?['skills'] ?? []);
   
-  bool get hasSkill => userSkills.isNotEmpty;
-  bool get isProfileComplete => _user != null && 
-      _user!['name'] != null && 
-      _user!['email'] != null;
+  void _setError(String error) {
+    _error = error;
+    notifyListeners();
+  }
+  
+  void _clearError() {
+    _error = null;
+    notifyListeners();
+  }
+  
+  void clearError() {
+    _clearError();
+  }
 }

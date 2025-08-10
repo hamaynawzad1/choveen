@@ -1,3 +1,4 @@
+// lib/models/suggestion_model.dart
 import 'project_model.dart';
 import 'user_model.dart';
 
@@ -10,7 +11,7 @@ class Suggestion {
   final double matchScore;
   final String timeline;
   final String difficulty;
-  final DateTime createdAt;
+  final List<String> feature; // Changed from features to feature to match usage
 
   Suggestion({
     required this.id,
@@ -21,8 +22,8 @@ class Suggestion {
     required this.matchScore,
     required this.timeline,
     required this.difficulty,
-    DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
+    required this.feature, // Required parameter
+  });
 
   factory Suggestion.fromJson(Map<String, dynamic> json) {
     return Suggestion(
@@ -34,7 +35,7 @@ class Suggestion {
       matchScore: (json['match_score'] ?? 0.0).toDouble(),
       timeline: json['timeline'] ?? '2-4 weeks',
       difficulty: json['difficulty'] ?? 'Intermediate',
-      createdAt: DateTime.parse(json['created_at'] ?? DateTime.now().toIso8601String()),
+      feature: json['feature'] != null ? List<String>.from(json['feature']) : [],
     );
   }
 
@@ -48,7 +49,7 @@ class Suggestion {
       'match_score': matchScore,
       'timeline': timeline,
       'difficulty': difficulty,
-      'created_at': createdAt.toIso8601String(),
+      'feature': feature,
     };
   }
 }

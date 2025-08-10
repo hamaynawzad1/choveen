@@ -24,7 +24,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   final _skillsController = TextEditingController();
   
-  // Focus nodes بۆ مۆبایل keyboard handling
   final _nameFocus = FocusNode();
   final _emailFocus = FocusNode();
   final _passwordFocus = FocusNode();
@@ -33,17 +32,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  File? _profileImageFile; // File بۆ مۆبایل
+  File? _profileImageFile;
   final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
+    print('📱 Register Screen loaded');
     
-    // Debug بۆ مۆبایل
-    print('📱 Register Screen loaded on Mobile');
-    
-    // Auto focus سەرەتایی فیڵد لە مۆبایل
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _nameFocus.requestFocus();
     });
@@ -54,6 +50,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Create Account'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -63,6 +61,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Logo Section
+                Center(
+                  child: Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withOpacity(0.3),
+                          spreadRadius: 2,
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.rocket_launch,
+                      size: 50,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                Text(
+                  'Join Choveen',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                
+                Text(
+                  'AI-powered team collaboration',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
+                
                 // Profile Image Picker
                 Center(
                   child: GestureDetector(
@@ -93,7 +136,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 32),
                 
                 // Name Field
-                _buildMobileTextField(
+                _buildTextField(
                   label: 'Full Name',
                   hint: 'Enter your full name',
                   controller: _nameController,
@@ -101,12 +144,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   nextFocus: _emailFocus,
                   validator: Validators.name,
                   prefixIcon: Icons.person_outlined,
-                  textInputAction: TextInputAction.next,
                 ),
                 const SizedBox(height: 24),
                 
                 // Email Field
-                _buildMobileTextField(
+                _buildTextField(
                   label: 'Email',
                   hint: 'Enter your email',
                   controller: _emailController,
@@ -115,12 +157,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   validator: Validators.email,
                   keyboardType: TextInputType.emailAddress,
                   prefixIcon: Icons.email_outlined,
-                  textInputAction: TextInputAction.next,
                 ),
                 const SizedBox(height: 24),
                 
                 // Password Field
-                _buildMobileTextField(
+                _buildTextField(
                   label: 'Password',
                   hint: 'Enter your password',
                   controller: _passwordController,
@@ -139,12 +180,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       });
                     },
                   ),
-                  textInputAction: TextInputAction.next,
                 ),
                 const SizedBox(height: 24),
                 
                 // Confirm Password Field
-                _buildMobileTextField(
+                _buildTextField(
                   label: 'Confirm Password',
                   hint: 'Confirm your password',
                   controller: _confirmPasswordController,
@@ -166,12 +206,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       });
                     },
                   ),
-                  textInputAction: TextInputAction.next,
                 ),
                 const SizedBox(height: 24),
                 
                 // Skills Field
-                _buildMobileTextField(
+                _buildTextField(
                   label: 'Skills',
                   hint: 'Enter your skills (comma separated)',
                   controller: _skillsController,
@@ -191,27 +230,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 // Register Button
                 Consumer<AuthProvider>(
                   builder: (context, authProvider, child) {
-                    // Error handling
-                    final errorMessage = authProvider.error;
-                    if (errorMessage != null && errorMessage.isNotEmpty) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(errorMessage),
-                              backgroundColor: AppColors.error,
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                          authProvider.clearError();
-                        }
-                      });
-                    }
-
                     return CustomButton(
                       text: 'Create Account',
-                      onPressed: _register,
+                      onPressed: authProvider.isLoading ? null : _register,
                       isLoading: authProvider.isLoading,
+                      backgroundColor: AppColors.primary,
                     );
                   },
                 ),
@@ -244,8 +267,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  // ✅ مۆبایل TextField بیلدەر
-  Widget _buildMobileTextField({
+  Widget _buildTextField({
     required String label,
     required String hint,
     required TextEditingController controller,
@@ -278,7 +300,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
           maxLines: maxLines,
           textInputAction: textInputAction,
           
-          // مۆبایل keyboard handling
           onFieldSubmitted: (value) {
             if (nextFocus != null) {
               FocusScope.of(context).requestFocus(nextFocus);
@@ -287,25 +308,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             }
           },
           
-          // تاپ کردن بۆ focus
-          onTap: () {
-            print('📱 Field tapped: $label');
-          },
-          
-          // گۆڕان لە value
-          onChanged: (value) {
-            // Debug
-            if (value.isNotEmpty) {
-              print('📝 $label input: ${value.length} chars');
-            }
-          },
-          
           decoration: InputDecoration(
             hintText: hint,
             prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
             suffixIcon: suffixIcon,
             
-            // مۆبایل-friendly borders
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: const BorderSide(color: AppColors.primary, width: 2),
@@ -329,16 +336,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             filled: true,
             fillColor: Colors.grey[50],
-            
-            // مۆبایل label animation
-            floatingLabelBehavior: FloatingLabelBehavior.never,
           ),
         ),
       ],
     );
   }
 
-  // ✅ مۆبایل Image Picker
   Future<void> _pickImage() async {
     try {
       showModalBottomSheet(
@@ -407,9 +410,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // ✅ مۆبایل Register Function
   Future<void> _register() async {
-    // Keyboard شاردنەوە
     FocusScope.of(context).unfocus();
     
     if (_formKey.currentState!.validate()) {
@@ -422,6 +423,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       try {
         print('📱 Starting registration...');
+        print('📧 Email: ${_emailController.text.trim()}');
+        print('👤 Name: ${_nameController.text.trim()}');
+        print('🛠️ Skills: $skills');
         
         final success = await authProvider.register(
           name: _nameController.text.trim(),
@@ -434,6 +438,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         if (success && mounted) {
           print('📱 Registration successful, navigating to verification...');
           
+          // Clear auth error before navigation
+          authProvider.clearError();
+          
+          // Navigate to verification screen
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -444,6 +452,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
           );
         } else {
           print('📱 Registration failed');
+          if (mounted && authProvider.error != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(authProvider.error!),
+                backgroundColor: AppColors.error,
+              ),
+            );
+          }
         }
       } catch (e) {
         print('📱 Registration error: $e');
@@ -452,7 +468,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             SnackBar(
               content: Text('Registration failed: ${e.toString()}'),
               backgroundColor: AppColors.error,
-              behavior: SnackBarBehavior.floating,
             ),
           );
         }
@@ -462,14 +477,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    // Controllers disposal
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _skillsController.dispose();
     
-    // Focus nodes disposal
     _nameFocus.dispose();
     _emailFocus.dispose();
     _passwordFocus.dispose();
