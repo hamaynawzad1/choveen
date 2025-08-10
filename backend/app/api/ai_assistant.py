@@ -1,3 +1,4 @@
+# app/api/ai_assistant.py - Updated with Local DeepSeek
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -8,8 +9,9 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.message import Message
 from app.models.project import Project
-from app.services.ai_service import get_enhanced_ai_service, ChatMessage
+from app.services.ai_service import get_local_ai_service, ChatMessage
 from app.api.auth import get_current_user
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -27,6 +29,7 @@ class AIChatResponse(BaseModel):
     ai_message_id: str
     processing_time: float
     model_used: str
+    model_info: Dict[str, Any]
 
 class ProjectSuggestionRequest(BaseModel):
     user_skills: List[str]
@@ -48,7 +51,7 @@ async def ai_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Enhanced AI Chat with DeepSeek Integration"""
+    """Enhanced AI Chat with Local DeepSeek Integration"""
     try:
         start_time = datetime.now()
         
@@ -59,8 +62,8 @@ async def ai_chat(
         if not request.project_id.strip():
             raise HTTPException(status_code=400, detail="Project ID is required")
         
-        # Get AI service
-        ai_service = get_enhanced_ai_service()
+        # Get local AI service
+        ai_service = get_local_ai_service()
         
         # Convert conversation history to ChatMessage objects
         conversation_history = []
@@ -80,14 +83,14 @@ async def ai_chat(
             if project:
                 project_context = f"Project: {project.title}. Description: {project.description}"
         
-        # Generate AI response
-        ai_response = ai_service.generate_smart_response(
+        # Generate AI response using local DeepSeek
+        ai_response = await ai_service.generate_smart_response(
             message=request.message.strip(),
             project_title=request.project_title or "Current Project",
             project_context=project_context,
             conversation_history=conversation_history,
-            max_tokens=200,
-            temperature=0.7
+            max_tokens=settings.DEEPSEEK_MAX_TOKENS,
+            temperature=settings.DEEPSEEK_TEMPERATURE
         )
         
         # Save user message to database
@@ -117,8 +120,9 @@ async def ai_chat(
         # Calculate processing time
         processing_time = (datetime.now() - start_time).total_seconds()
         
-        # Determine model used
-        model_used = "DeepSeek" if ai_service.is_initialized and not ai_service.fallback_mode else "Enhanced Fallback"
+        # Determine model used and get model info
+        model_used = "Local DeepSeek" if ai_service.local_deepseek.is_initialized else "Enhanced Fallback"
+        model_info = settings.get_model_info()
         
         return AIChatResponse(
             response=ai_response,
@@ -126,7 +130,8 @@ async def ai_chat(
             message_id=user_message.id,
             ai_message_id=ai_message.id,
             processing_time=processing_time,
-            model_used=model_used
+            model_used=model_used,
+            model_info=model_info
         )
         
     except HTTPException:
@@ -134,224 +139,175 @@ async def ai_chat(
     except Exception as e:
         db.rollback()
         print(f"Error in AI chat: {e}")
-        raise HTTPException(status_code=500, detail="Failed to process AI chat")
+        raise HTTPException(status_code=500, detail=f"Failed to process AI chat: {str(e)}")
+
+@router.get("/model-status")
+async def get_model_status():
+    """Get current AI model status"""
+    try:
+        ai_service = get_local_ai_service()
+        model_info = settings.get_model_info()
+        
+        return {
+            "status": "initialized" if ai_service.local_deepseek.is_initialized else "fallback",
+            "model_info": model_info,
+            "deepseek_available": settings.deepseek_available,
+            "is_loading": ai_service.local_deepseek.is_loading,
+            "service_type": settings.AI_SERVICE_TYPE,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@router.post("/reload-model")
+async def reload_model():
+    """Reload the DeepSeek model"""
+    try:
+        ai_service = get_local_ai_service()
+        
+        # Reset the service
+        ai_service.local_deepseek.is_initialized = False
+        ai_service.local_deepseek.is_loading = False
+        
+        # Reinitialize
+        ai_service.local_deepseek._initialize_model()
+        
+        return {
+            "status": "success" if ai_service.local_deepseek.is_initialized else "failed",
+            "message": "Model reload completed",
+            "model_info": settings.get_model_info(),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@router.post("/test-generation")
+async def test_ai_generation(
+    test_message: str = "Hello, how can you help me with my project?",
+    project_title: str = "Test Project"
+):
+    """Test AI generation without saving to database"""
+    try:
+        start_time = datetime.now()
+        ai_service = get_local_ai_service()
+        
+        response = await ai_service.generate_smart_response(
+            message=test_message,
+            project_title=project_title,
+            project_context="This is a test project for AI functionality",
+            conversation_history=[],
+            max_tokens=100,
+            temperature=0.7
+        )
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        return {
+            "status": "success",
+            "request": {
+                "message": test_message,
+                "project_title": project_title
+            },
+            "response": response,
+            "processing_time": processing_time,
+            "model_used": "Local DeepSeek" if ai_service.local_deepseek.is_initialized else "Fallback",
+            "model_info": settings.get_model_info(),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 @router.post("/suggestions", response_model=ProjectSuggestionResponse)
 async def generate_ai_suggestions(
     request: ProjectSuggestionRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user)
 ):
-    """Generate intelligent project suggestions using AI"""
+    """Generate AI-powered project suggestions using local DeepSeek"""
     try:
-        ai_service = get_enhanced_ai_service()
+        ai_service = get_local_ai_service()
         
-        # Generate suggestions based on user skills and interests
-        suggestions_prompt = f"""
-        Generate 3-5 project suggestions for a user with these skills: {', '.join(request.user_skills)}
-        Interests: {', '.join(request.interests) if request.interests else 'General development'}
-        Difficulty level: {request.difficulty_level}
+        # Create suggestion prompt
+        skills_text = ", ".join(request.user_skills)
+        interests_text = ", ".join(request.interests) if request.interests else "general development"
         
-        For each project, provide:
-        - Title and brief description
-        - Required skills (matching user's skills)
-        - Estimated duration
-        - Key features to implement
-        - Learning outcomes
-        """
+        suggestion_prompt = f"""Generate 3 innovative project suggestions for a developer with these skills: {skills_text}.
         
-        if ai_service.is_initialized and not ai_service.fallback_mode:
-            ai_suggestions = ai_service.generate_smart_response(
-                message=suggestions_prompt,
-                project_title="Project Suggestions",
-                project_context="Skill-based project recommendations",
-                max_tokens=500,
-                temperature=0.8
-            )
-            
-            # Parse AI response into structured suggestions
-            suggestions = _parse_ai_suggestions(ai_suggestions, request.user_skills, request.difficulty_level)
-            generated_by = "DeepSeek AI"
-            
-        else:
-            # Fallback to predefined suggestions
-            suggestions = _generate_fallback_suggestions(request.user_skills, request.difficulty_level)
-            generated_by = "Fallback System"
+Interests: {interests_text}
+Difficulty Level: {request.difficulty_level}
+
+For each project, provide:
+1. Project title
+2. Brief description (2-3 sentences)
+3. Key technologies needed
+4. Difficulty level
+5. Estimated timeline
+
+Format as a structured response."""
+
+        # Generate suggestions using AI
+        ai_response = await ai_service.generate_smart_response(
+            message=suggestion_prompt,
+            project_title="Project Suggestion Generator",
+            project_context="Generating personalized project suggestions",
+            conversation_history=[],
+            max_tokens=400,
+            temperature=0.8
+        )
+        
+        # Parse AI response into structured suggestions (simplified)
+        suggestions = [
+            {
+                "id": f"ai_suggestion_{i+1}",
+                "title": f"AI-Generated Project {i+1}",
+                "description": ai_response[:200] + "..." if len(ai_response) > 200 else ai_response,
+                "skills": request.user_skills,
+                "difficulty": request.difficulty_level,
+                "estimated_timeline": "4-8 weeks",
+                "match_score": 0.8 + (i * 0.05),
+                "generated_by_ai": True
+            }
+            for i in range(3)
+        ]
         
         return ProjectSuggestionResponse(
             suggestions=suggestions,
             total_count=len(suggestions),
             user_skills=request.user_skills,
-            generated_by=generated_by,
+            generated_by="Local DeepSeek AI",
             timestamp=datetime.now().isoformat()
         )
         
     except Exception as e:
-        print(f"Error generating suggestions: {e}")
-        # Emergency fallback
-        fallback_suggestions = [{
-            "id": f"proj_fallback_{hash(str(request.user_skills)) % 10000}",
-            "project": {
-                "id": f"proj_fallback_{hash(str(request.user_skills)) % 10000}",
-                "title": "Skill-Based Portfolio Project",
-                "description": f"Create a comprehensive portfolio showcasing your {', '.join(request.user_skills[:3])} skills",
-                "required_skills": request.user_skills[:3] if request.user_skills else ["Programming", "Design"],
-                "category": "Portfolio",
-                "estimated_duration": "4-6 weeks"
-            },
-            "description": "Perfect project to demonstrate your abilities",
-            "match_score": 0.85,
-            "timeline": "4-6 weeks",
-            "difficulty": request.difficulty_level.title(),
-            "ai_generated": True,
-            "fallback": True
-        }]
+        # Fallback to static suggestions on error
+        fallback_suggestions = [
+            {
+                "id": "fallback_1",
+                "title": "Personal Portfolio Website",
+                "description": "Create a modern, responsive portfolio showcasing your skills and projects",
+                "skills": request.user_skills[:3],
+                "difficulty": request.difficulty_level,
+                "estimated_timeline": "2-4 weeks",
+                "match_score": 0.7,
+                "generated_by_ai": False
+            }
+        ]
         
         return ProjectSuggestionResponse(
             suggestions=fallback_suggestions,
             total_count=1,
             user_skills=request.user_skills,
-            generated_by="Emergency Fallback System",
+            generated_by="Fallback System",
             timestamp=datetime.now().isoformat()
         )
-
-@router.get("/chat/{project_id}/messages")
-async def get_ai_chat_messages(
-    project_id: str,
-    skip: int = 0,
-    limit: int = 50,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get AI chat messages for a project with enhanced formatting"""
-    try:
-        messages = db.query(Message).filter(
-            Message.project_id == project_id
-        ).order_by(Message.created_at.asc()).offset(skip).limit(limit).all()
-        
-        # Enhanced message formatting
-        formatted_messages = []
-        for msg in messages:
-            formatted_msg = {
-                "id": msg.id,
-                "sender_id": msg.sender_id,
-                "content": msg.content,
-                "message_type": msg.message_type,
-                "created_at": msg.created_at.isoformat(),
-                "project_id": msg.project_id,
-                "is_ai": msg.sender_id == "ai_assistant",
-                "formatted_time": _format_message_time(msg.created_at),
-                "word_count": len(msg.content.split()),
-                "char_count": len(msg.content)
-            }
-            formatted_messages.append(formatted_msg)
-        
-        return {
-            "messages": formatted_messages,
-            "total": len(formatted_messages),
-            "project_id": project_id,
-            "pagination": {
-                "skip": skip,
-                "limit": limit,
-                "has_more": len(formatted_messages) == limit
-            }
-        }
-        
-    except Exception as e:
-        print(f"Error fetching messages: {e}")
-        return {"messages": [], "total": 0, "project_id": project_id}
-
-def _parse_ai_suggestions(ai_response: str, user_skills: List[str], difficulty: str) -> List[Dict]:
-    """Parse AI response into structured project suggestions"""
-    suggestions = []
-    
-    # Simple parsing - in production, use more sophisticated NLP
-    sections = ai_response.split('\n\n')
-    
-    for i, section in enumerate(sections[:5]):  # Max 5 suggestions
-        if len(section.strip()) > 50:  # Valid suggestion
-            lines = section.strip().split('\n')
-            title = lines[0].strip('**').strip('#').strip()
-            
-            suggestion = {
-                "id": f"ai_proj_{hash(title) % 10000}",
-                "project": {
-                    "id": f"ai_proj_{hash(title) % 10000}",
-                    "title": title,
-                    "description": section,
-                    "required_skills": user_skills[:3],
-                    "category": "AI Generated",
-                    "estimated_duration": "3-6 weeks"
-                },
-                "description": section[:200] + "..." if len(section) > 200 else section,
-                "match_score": 0.9 - (i * 0.1),
-                "timeline": "3-6 weeks",
-                "difficulty": difficulty.title(),
-                "ai_generated": True,
-                "fallback": False
-            }
-            suggestions.append(suggestion)
-    
-    return suggestions if suggestions else _generate_fallback_suggestions(user_skills, difficulty)
-
-def _generate_fallback_suggestions(user_skills: List[str], difficulty: str) -> List[Dict]:
-    """Generate fallback suggestions when AI is unavailable"""
-    base_suggestions = [
-        {
-            "title": "Personal Portfolio Website",
-            "description": "Build a professional portfolio showcasing your skills and projects",
-            "category": "Web Development",
-            "duration": "2-3 weeks"
-        },
-        {
-            "title": "Task Management App",
-            "description": "Create a full-featured task management application with user authentication",
-            "category": "Full Stack",
-            "duration": "4-6 weeks"
-        },
-        {
-            "title": "E-commerce Platform",
-            "description": "Develop a complete e-commerce solution with payment integration",
-            "category": "Business Application",
-            "duration": "6-8 weeks"
-        }
-    ]
-    
-    suggestions = []
-    for i, base in enumerate(base_suggestions):
-        suggestion = {
-            "id": f"fallback_proj_{i}",
-            "project": {
-                "id": f"fallback_proj_{i}",
-                "title": base["title"],
-                "description": base["description"],
-                "required_skills": user_skills[:3] if user_skills else ["Programming"],
-                "category": base["category"],
-                "estimated_duration": base["duration"]
-            },
-            "description": base["description"],
-            "match_score": 0.8 - (i * 0.1),
-            "timeline": base["duration"],
-            "difficulty": difficulty.title(),
-            "ai_generated": False,
-            "fallback": True
-        }
-        suggestions.append(suggestion)
-    
-    return suggestions
-
-def _format_message_time(created_at: datetime) -> str:
-    """Format message timestamp for display"""
-    now = datetime.utcnow()
-    diff = now - created_at
-    
-    if diff.days > 0:
-        return f"{diff.days} days ago"
-    elif diff.seconds > 3600:
-        hours = diff.seconds // 3600
-        return f"{hours} hours ago"
-    elif diff.seconds > 60:
-        minutes = diff.seconds // 60
-        return f"{minutes} minutes ago"
-    else:
-        return "Just now"

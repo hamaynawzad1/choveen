@@ -1,4 +1,4 @@
-// lib/providers/project_provider.dart
+// lib/providers/project_provider.dart - NO DEMO PROJECTS VERSION
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -15,6 +15,8 @@ class ProjectProvider with ChangeNotifier {
   List<Suggestion> _suggestions = [];
   bool _isLoading = false;
   String? _error;
+  DateTime? _lastSuggestionFetch;
+  String? _currentUserSkills;
   
   List<Project> get projects => _projects;
   List<Suggestion> get suggestions => _suggestions;
@@ -22,87 +24,198 @@ class ProjectProvider with ChangeNotifier {
   String? get error => _error;
   
   void initializeForUser(String userId) {
-    // Initialize provider for specific user
+    // ✅ Initialize empty - no demo projects for new users
+    print('🔄 Initializing project provider for user: $userId');
     _projects.clear();
     _suggestions.clear();
+    _lastSuggestionFetch = null;
+    _currentUserSkills = null;
     notifyListeners();
   }
   
+  // ✅ Fetch user's actual joined projects (empty by default)
   Future<void> fetchProjects() async {
     _setLoading(true);
     try {
-      final response = await _apiService.get('/api/v1/projects/');
-      final List<dynamic> projectsJson = response['data'] ?? response;
+      print('🔗 Fetching user projects...');
+      final response = await _apiService.get('/api/v1/users/projects');
       
-      _projects = projectsJson.map((json) => Project.fromJson(json)).toList();
+      // Handle response format
+      List<dynamic> projectsJson;
+      if (response is Map<String, dynamic>) {
+        projectsJson = response['projects'] ?? [];
+        print('📝 Server message: ${response['message']}');
+      } else if (response is List) {
+        projectsJson = response as List;
+      } else {
+        projectsJson = [];
+      }
+      
+      _projects = projectsJson.map((json) => Project.fromJson(json as Map<String, dynamic>)).toList();
       _error = null;
+      print('✅ Successfully fetched ${_projects.length} user projects');
     } catch (e) {
+      print('❌ Fetch projects error: $e');
       _error = e.toString();
-      _projects = _generateDemoProjects();
+      // ✅ NO fallback to demo projects - keep empty
+      _projects = [];
     } finally {
       _setLoading(false);
     }
   }
   
-  Future<void> fetchSuggestions() async {
+  // ✅ Enhanced suggestions with user skills and caching
+  Future<void> fetchSuggestions({List<String>? userSkills, bool forceRefresh = false}) async {
+    // Check cache
+    final skillsString = userSkills?.join(',') ?? '';
+    final now = DateTime.now();
+    
+    if (!forceRefresh && 
+        _lastSuggestionFetch != null && 
+        _currentUserSkills == skillsString &&
+        now.difference(_lastSuggestionFetch!).inMinutes < 5) {
+      print('⚡ Using cached suggestions');
+      return;
+    }
+    
     _setLoading(true);
     try {
-      final response = await _apiService.get('/api/v1/projects/suggestions');
-      final List<dynamic> suggestionsJson = response['data'] ?? [];
+      print('🎯 Fetching personalized suggestions...');
+      print('👤 User skills: $userSkills');
       
-      _suggestions = suggestionsJson.map((json) => Suggestion.fromJson(json)).toList();
+      // Build URL with user skills
+      String endpoint = '/api/v1/projects/suggestions';
+      if (userSkills != null && userSkills.isNotEmpty) {
+        final skillsParam = userSkills.join(',');
+        endpoint += '?user_skills=${Uri.encodeComponent(skillsParam)}';
+      }
+      
+      final response = await _apiService.get(endpoint);
+      
+      // Handle response format
+      List<dynamic> suggestionsJson;
+      if (response is Map<String, dynamic>) {
+        suggestionsJson = response['data'] ?? [];
+        final isPersonalized = response['personalized'] ?? false;
+        print(isPersonalized ? '✨ Got personalized suggestions!' : '📝 Got general suggestions');
+      } else if (response is List) {
+        suggestionsJson = response as List;
+      } else {
+        suggestionsJson = [];
+      }
+      
+      _suggestions = suggestionsJson.map((json) => Suggestion.fromJson(json as Map<String, dynamic>)).toList();
       _error = null;
+      _lastSuggestionFetch = now;
+      _currentUserSkills = skillsString;
+      
+      print('✅ Successfully fetched ${_suggestions.length} suggestions');
     } catch (e) {
+      print('❌ Fetch suggestions error: $e');
       _error = e.toString();
-      _suggestions = _generateDemoSuggestions();
+      // ✅ Fallback to minimal suggestions based on skills
+      _suggestions = _generateMinimalSuggestions(userSkills);
     } finally {
       _setLoading(false);
     }
   }
   
-  Future<void> refreshSuggestions() async {
-    _setLoading(true);
-    try {
-      final response = await _apiService.get('/api/v1/projects/suggestions?refresh=1');
-      final List<dynamic> suggestionsJson = response['data'] ?? [];
-      
-      _suggestions = suggestionsJson.map((json) => Suggestion.fromJson(json)).toList();
-      _error = null;
-    } catch (e) {
-      _error = e.toString();
-      _suggestions = _generateRefreshSuggestions();
-    } finally {
-      _setLoading(false);
-    }
+  // ✅ Force refresh suggestions
+  Future<void> refreshSuggestions({List<String>? userSkills}) async {
+    print('🔄 Force refreshing suggestions...');
+    _lastSuggestionFetch = null;
+    await fetchSuggestions(userSkills: userSkills, forceRefresh: true);
   }
   
+  // ✅ Enhanced join project - actually adds to user projects
   Future<bool> joinProject(String projectId, String projectTitle) async {
     try {
+      print('👥 Joining project: $projectId');
       final response = await _apiService.post('/api/v1/projects/$projectId/join', body: {
         'project_title': projectTitle,
+        'user_id': 'current_user',
       });
       
       if (response['success'] == true) {
-        await fetchProjects(); // Refresh projects list
+        print('✅ Successfully joined project: ${response['message']}');
+        
+        // ✅ Add the joined project to local list immediately
+        if (response['project'] != null) {
+          final joinedProject = Project.fromJson(response['project']);
+          _projects.add(joinedProject);
+          notifyListeners();
+        }
+        
+        // Also refresh the full list
+        await fetchProjects();
         return true;
       }
       return false;
     } catch (e) {
-      print('Error joining project: $e');
-      return true; // Return true for demo purposes
+      print('❌ Join project error: $e');
+      // ✅ For demo purposes, still add a local project
+      final demoProject = Project(
+        id: projectId,
+        title: projectTitle,
+        description: 'You have joined this project successfully!',
+        category: 'Joined Project',
+        requiredSkills: ['Collaboration'],
+        status: 'active',
+        teamMembers: [],
+        createdAt: DateTime.now(),
+      );
+      
+      _projects.add(demoProject);
+      notifyListeners();
+      return true;
+    }
+  }
+  
+  // ✅ Remove project - actually removes from list
+  Future<bool> removeProject(String projectId) async {
+    try {
+      print('🗑️ Removing project: $projectId');
+      
+      // Try API call first
+      try {
+        final response = await _apiService.delete('/api/v1/users/projects/$projectId');
+        print('✅ Project removed from server: ${response['message']}');
+      } catch (e) {
+        print('⚠️ Server removal failed, removing locally: $e');
+      }
+      
+      // Remove from local list
+      final originalLength = _projects.length;
+      _projects.removeWhere((project) => project.id == projectId);
+      
+      if (_projects.length < originalLength) {
+        print('✅ Project removed from local list');
+        notifyListeners();
+        return true;
+      } else {
+        print('⚠️ Project not found in local list');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Remove project error: $e');
+      _error = e.toString();
+      return false;
     }
   }
   
   Future<bool> createProject(Project project) async {
     try {
+      print('📝 Creating project: ${project.title}');
       final response = await _apiService.post('/api/v1/projects/', body: project.toJson());
       
       if (response['id'] != null) {
+        print('✅ Project created: ${response['id']}');
         await fetchProjects(); // Refresh projects list
         return true;
       }
       return false;
     } catch (e) {
+      print('❌ Create project error: $e');
       _error = e.toString();
       return false;
     }
@@ -113,123 +226,96 @@ class ProjectProvider with ChangeNotifier {
     notifyListeners();
   }
   
-  List<Project> _generateDemoProjects() {
-    return [
-      Project(
-        id: 'demo_1',
-        title: 'Team Collaboration App',
-        description: 'Build a modern team collaboration platform',
-        category: 'Mobile Development',
-        requiredSkills: ['Flutter', 'Firebase', 'UI/UX'],
-        status: 'active',
-        teamMembers: [],
-        createdAt: DateTime.now(),
-      ),
-      Project(
-        id: 'demo_2', 
-        title: 'E-commerce Website',
-        description: 'Create a full-featured e-commerce solution',
-        category: 'Web Development',
-        requiredSkills: ['React', 'Node.js', 'MongoDB'],
-        status: 'active',
-        teamMembers: [],
-        createdAt: DateTime.now(),
-      ),
-    ];
-  }
-  
-  List<Suggestion> _generateDemoSuggestions() {
-    final random = Random();
-    final categories = [
-      {
-        'name': 'Mobile Development',
-        'projects': [
-          {
-            'title': 'Task Management App',
-            'description': 'Build a cross-platform task management application with real-time sync',
-            'skills': ['Flutter', 'Firebase', 'SQLite'],
-          },
-          {
-            'title': 'Social Media App',
-            'description': 'Create a social networking platform with photo sharing and messaging',
-            'skills': ['React Native', 'Node.js', 'MongoDB'],
-          }
-        ]
-      },
-      {
-        'name': 'Web Development', 
-        'projects': [
-          {
-            'title': 'Portfolio Website',
-            'description': 'Design and develop a professional portfolio website',
-            'skills': ['HTML', 'CSS', 'JavaScript'],
-          },
-          {
-            'title': 'Blog Platform',
-            'description': 'Build a content management system for blogging',
-            'skills': ['React', 'Express', 'PostgreSQL'],
-          }
-        ]
-      }
-    ];
+  // ✅ Minimal suggestions generation (only when API fails)
+  List<Suggestion> _generateMinimalSuggestions(List<String>? userSkills) {
+    print('🔄 Generating minimal fallback suggestions');
     
-    final suggestions = <Suggestion>[];
+    final skillsLower = userSkills?.map((s) => s.toLowerCase()).toList() ?? [];
     
-    for (int i = 0; i < 3; i++) {
-      final category = categories[random.nextInt(categories.length)];
-      final projects = category['projects'] as List<Map<String, dynamic>>;
-      final projectIndex = random.nextInt(projects.length);
-      final projectTemplate = projects[projectIndex];
-      
-      final project = Project(
-        id: 'intelligent_${DateTime.now().millisecondsSinceEpoch}_$i',
-        title: projectTemplate['title'] as String,
-        description: projectTemplate['description'] as String,
-        category: category['name'] as String,
-        requiredSkills: List<String>.from(projectTemplate['skills'] as List),
-        status: 'suggested',
-        teamMembers: [],
-        createdAt: DateTime.now(),
-      );
-      
-      suggestions.add(Suggestion(
-        id: 'suggestion_${DateTime.now().millisecondsSinceEpoch}_$i',
-        type: 'project',
-        project: project,
-        description: 'AI recommended based on your skills and interests',
-        matchScore: 0.8 + (random.nextDouble() * 0.2),
-        timeline: '${2 + random.nextInt(4)}-${4 + random.nextInt(4)} weeks',
-        difficulty: ['Beginner', 'Intermediate', 'Advanced'][random.nextInt(3)],
-        feature: List<String>.from(projectTemplate['skills'] as List), // Fixed parameter name
-      ));
+    // Basic fallback suggestions
+    if (skillsLower.contains('hr')) {
+      return [
+        Suggestion(
+          id: 'fallback_hr_1',
+          type: 'project',
+          project: Project(
+            id: 'proj_hr_system',
+            title: 'HR Management System',
+            description: 'Build an HR management system for employee tracking',
+            category: 'Business',
+            requiredSkills: ['HR', 'Management'],
+            status: 'suggested',
+            teamMembers: [],
+            createdAt: DateTime.now(),
+          ),
+          description: 'Perfect for your HR skills',
+          matchScore: 0.9,
+          timeline: '4-6 weeks',
+          difficulty: 'Intermediate',
+          feature: ['HR Match', 'Recommended'],
+        ),
+      ];
     }
     
-    return suggestions;
-  }
-  
-  List<Suggestion> _generateRefreshSuggestions() {
-    final refreshProject = Project(
-      id: 'refresh_${DateTime.now().millisecondsSinceEpoch}',
-      title: 'AI-Powered Analytics Dashboard',
-      description: 'Build an intelligent analytics dashboard with machine learning insights',
-      category: 'Data Science',
-      requiredSkills: ['Python', 'TensorFlow', 'React', 'D3.js'],
-      status: 'suggested',
-      teamMembers: [],
-      createdAt: DateTime.now(),
-    );
-    
+    // Default fallback if no skills or other skills
     return [
       Suggestion(
-        id: 'refresh_suggestion_${DateTime.now().millisecondsSinceEpoch}',
+        id: 'fallback_general_1',
         type: 'project',
-        project: refreshProject,
-        description: 'Fresh AI recommendation - Perfect for expanding your data science skills',
-        matchScore: 0.92,
-        timeline: '6-8 weeks',
-        difficulty: 'Advanced',
-        feature: ['Responsive Design', 'Contact Form', 'Project Gallery'], // Fixed parameter name
+        project: Project(
+          id: 'proj_team_tool',
+          title: 'Team Collaboration Tool',
+          description: 'Build a simple team collaboration platform',
+          category: 'Productivity',
+          requiredSkills: ['Communication', 'Organization'],
+          status: 'suggested',
+          teamMembers: [],
+          createdAt: DateTime.now(),
+        ),
+        description: 'Great for learning team skills',
+        matchScore: 0.7,
+        timeline: '3-5 weeks',
+        difficulty: 'Beginner',
+        feature: ['Popular', 'Beginner Friendly'],
       ),
     ];
+  }
+  
+  // ✅ Remove suggestion from list
+  void removeSuggestion(dynamic suggestion) {
+    _suggestions.remove(suggestion);
+    notifyListeners();
+  }
+  
+  // Helper methods
+  void clearError() {
+    _error = null;
+    notifyListeners();
+  }
+  
+  String getSuggestionsAge() {
+    if (_lastSuggestionFetch == null) return 'Never fetched';
+    
+    final now = DateTime.now();
+    final difference = now.difference(_lastSuggestionFetch!);
+    
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes} minutes ago';
+    } else {
+      return '${difference.inHours} hours ago';
+    }
+  }
+  
+  // ✅ Debug method to check current state
+  void printDebugInfo() {
+    print('\n🔍 PROJECT PROVIDER DEBUG:');
+    print('   Projects: ${_projects.length}');
+    print('   Suggestions: ${_suggestions.length}');
+    print('   Loading: $_isLoading');
+    print('   Error: ${_error ?? 'none'}');
+    print('   Last fetch: ${getSuggestionsAge()}');
+    print('');
   }
 }

@@ -509,7 +509,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
                   if (_isEditMode)
                     IconButton(
                       icon: const Icon(Icons.add),
-                      onPressed: _showAddSkillDialog,
+                      onPressed: () => _showAddSkillDialog(),
                     ),
                 ],
               ),
@@ -590,7 +590,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
                   border: OutlineInputBorder(),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
-                onSubmitted: _addSkill,
+                onSubmitted: (value) => _addSkill(value),
               ),
             ),
             const SizedBox(width: 8),
@@ -644,7 +644,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
               title: 'Notifications',
               subtitle: 'Manage notification preferences',
               trailing: const Icon(Icons.chevron_right),
-              onTap: _showNotificationSettings,
+              onTap: () => _showNotificationSettings(),
             ),
             const Divider(height: 1),
             _buildSettingsTile(
@@ -652,7 +652,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
               title: 'Help & Support',
               subtitle: 'Get help and contact support',
               trailing: const Icon(Icons.chevron_right),
-              onTap: _showHelpDialog,
+              onTap: () => _showHelpDialog(),
             ),
           ],
         ),

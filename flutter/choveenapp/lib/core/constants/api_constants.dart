@@ -1,11 +1,11 @@
 class APIConstants {
-  static const String baseUrl = 'http://localhost:8000'; // Change to your backend URL
+  static const String baseUrl = 'http://192.168.100.100:8000'; // Change to your backend URL
   
   // Timeout duration
   static const Duration timeout = Duration(seconds: 30);
   
-  // Auth endpoints
-  static const String login = '/api/v1/auth/login';
+  // Auth endpoints - FIXED URLs
+  static const String login = '/api/v1/auth/login';        // ✅ Fixed
   static const String register = '/api/v1/auth/register';
   static const String verifyEmail = '/api/v1/auth/verify-email';
   static const String logout = '/api/v1/auth/logout';

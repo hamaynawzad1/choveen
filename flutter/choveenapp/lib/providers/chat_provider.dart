@@ -1,4 +1,4 @@
-// lib/providers/chat_provider.dart - FIXED VERSION
+// lib/providers/chat_provider.dart - COMPLETELY FIXED VERSION
 import 'package:flutter/material.dart';
 import '../models/message_model.dart';
 import '../core/services/api_service.dart';
@@ -338,7 +338,7 @@ For example:
     return keywords.any((keyword) => message.contains(keyword));
   }
 
-  // ✅ FIXED: Enhanced message fetching
+  // ✅ COMPLETELY FIXED: Enhanced message fetching
   Future<void> fetchMessages(String chatId) async {
     _isLoading = true;
     _error = null;
@@ -373,17 +373,40 @@ I'm here to help you with your project development. I can assist with:
           _messages.add(welcomeMessage);
         }
       } else {
-        // Try to fetch from API
+        // ✅ FIXED: Proper API response handling
         try {
           final response = await _apiService.getChatMessages(chatId);
-          _messages = response.map((data) => Message.fromJson(data)).toList();
+          print('📦 Chat messages response: $response');
+          
+          // ✅ FIXED: Handle different response formats with proper typing
+          List<dynamic> messagesList;
+          
+          if (response is Map<String, dynamic>) {
+            // If response is a Map, extract messages array
+            final messagesData = response['messages'] ?? response['data'] ?? [];
+            messagesList = messagesData is List ? messagesData : [];
+          } else if (response is List) {
+            // If response is already a List
+            messagesList = response as List;
+          } else {
+            throw Exception('Unexpected response format: ${response.runtimeType}');
+          }
+          
+          // ✅ FIXED: Proper mapping with type casting
+          _messages = messagesList
+              .map((data) => Message.fromJson(data as Map<String, dynamic>))
+              .toList();
+              
+          print('✅ Successfully loaded ${_messages.length} messages');
+          
         } catch (e) {
-          print('API fetch failed, using local messages: $e');
+          print('❌ API fetch failed, using local messages: $e');
+          _error = 'Could not load messages from server';
         }
       }
     } catch (e) {
       _error = 'Failed to load messages: $e';
-      print('Error in fetchMessages: $e');
+      print('❌ Error in fetchMessages: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -399,14 +422,33 @@ I'm here to help you with your project development. I can assist with:
       // Try API first
       try {
         final response = await _apiService.getChatList();
-        _chatList = List<Map<String, dynamic>>.from(response['data'] ?? []);
+        print('📦 Chat list response: $response');
+        
+        // ✅ FIXED: Proper response handling with type safety
+        List<dynamic> chatsList;
+        
+        if (response is Map<String, dynamic>) {
+          final chatsData = response['chats'] ?? response['data'] ?? [];
+          chatsList = chatsData is List ? chatsData : [];
+        } else if (response is List) {
+          chatsList = response as List;
+        } else {
+          throw Exception('Unexpected chat list format');
+        }
+        
+        _chatList = chatsList
+            .map((data) => data as Map<String, dynamic>)
+            .toList();
+            
+        print('✅ Successfully loaded ${_chatList.length} chats');
+        
       } catch (e) {
-        print('API failed, using demo data: $e');
+        print('❌ API failed, using demo data: $e');
         // Fallback to demo data
         _chatList = [
           {
             'id': 'ai_demo_project',
-            'name': 'AI Assistant - Demo Project',
+            'title': 'AI Assistant - Demo Project',
             'last_message': 'Hi! I\'m ready to help with your project.',
             'unread_count': 0,
             'type': 'ai_chat'
@@ -415,7 +457,7 @@ I'm here to help you with your project development. I can assist with:
       }
     } catch (e) {
       _error = 'Failed to load chats: $e';
-      print('Error in fetchChatList: $e');
+      print('❌ Error in fetchChatList: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -456,13 +498,14 @@ I'm here to help you with your project development. I can assist with:
       // Try to send via API
       try {
         await _apiService.sendMessage(chatId, message);
+        print('✅ Message sent to API successfully');
       } catch (e) {
-        print('API send failed: $e');
+        print('❌ API send failed: $e');
       }
       
     } catch (e) {
       _error = 'Failed to send message: $e';
-      print('Error in sendMessage: $e');
+      print('❌ Error in sendMessage: $e');
     } finally {
       _isSendingMessage = false;
       notifyListeners();

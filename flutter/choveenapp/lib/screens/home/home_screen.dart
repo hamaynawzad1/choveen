@@ -1,4 +1,3 @@
-// lib/screens/home/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -25,14 +24,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     
-    // Initialize providers
+    // Initialize providers with user data
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       if (authProvider.user != null) {
         final projectProvider = Provider.of<ProjectProvider>(context, listen: false);
         projectProvider.initializeForUser(authProvider.user!.id);
         projectProvider.fetchProjects();
-        projectProvider.fetchSuggestions();
+        
+        // ✅ Fetch personalized suggestions with user skills
+        projectProvider.fetchSuggestions(userSkills: authProvider.user!.skills);
       }
     });
   }
@@ -104,7 +105,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // 🏠 HOME TAB
+  // 🏠 HOME TAB - Enhanced with personalized content
   Widget _buildHomeTab() {
     return Consumer<AuthProvider>(
       builder: (context, authProvider, child) {
@@ -115,14 +116,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             if (user != null) {
               final projectProvider = Provider.of<ProjectProvider>(context, listen: false);
               await projectProvider.fetchProjects();
-              await projectProvider.fetchSuggestions();
+              // ✅ Refresh with user skills for personalization
+              await projectProvider.refreshSuggestions(userSkills: user.skills);
             }
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             child: Column(
               children: [
-                // Header
+                // Enhanced Header with User Skills
                 Container(
                   padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
                   decoration: const BoxDecoration(
@@ -157,6 +159,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
+                                // ✅ Show user skills
+                                if (user?.skills.isNotEmpty == true) ...[
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: user!.skills.take(3).map((skill) {
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          skill,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -182,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
                 const SizedBox(height: 24),
 
-                // Stats Cards
+                // Enhanced Stats Cards
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Consumer<ProjectProvider>(
@@ -200,7 +227,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           const SizedBox(width: 16),
                           Expanded(
                             child: _buildStatCard(
-                              'Suggestions',
+                              'AI Suggestions',
                               '${projectProvider.suggestions.length}',
                               Icons.lightbulb,
                               Colors.orange,
@@ -214,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
                 const SizedBox(height: 32),
 
-                // AI Smart Suggestions Section
+                // ✅ Enhanced AI Smart Suggestions Section
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Column(
@@ -223,21 +250,34 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Flexible(
-                            child: Text(
-                              "AI Smart Suggestions",
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                "🎯 Personalized Suggestions",
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              Consumer<ProjectProvider>(
+                                builder: (context, projectProvider, child) {
+                                  return Text(
+                                    "Last updated: ${projectProvider.getSuggestionsAge()}",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
                           ElevatedButton.icon(
                             onPressed: () {
                               final projectProvider = Provider.of<ProjectProvider>(context, listen: false);
-                              projectProvider.refreshSuggestions();
+                              // ✅ Refresh with user skills
+                              projectProvider.refreshSuggestions(userSkills: user?.skills);
                             },
                             icon: const Icon(Icons.refresh, size: 18),
                             label: const Text('Refresh'),
@@ -255,30 +295,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         builder: (context, projectProvider, child) {
                           if (projectProvider.isLoading) {
                             return const Center(
-                              child: CircularProgressIndicator(),
+                              child: Padding(
+                                padding: EdgeInsets.all(32.0),
+                                child: Column(
+                                  children: [
+                                    CircularProgressIndicator(),
+                                    SizedBox(height: 16),
+                                    Text('Generating personalized suggestions...'),
+                                  ],
+                                ),
+                              ),
                             );
                           }
 
                           if (projectProvider.suggestions.isEmpty) {
                             return Center(
-                              child: Column(
-                                children: [
-                                  Icon(Icons.lightbulb_outline, size: 64, color: Colors.grey[400]),
-                                  const SizedBox(height: 16),
-                                  const Text('No suggestions available'),
-                                  const SizedBox(height: 8),
-                                  ElevatedButton(
-                                    onPressed: () => projectProvider.fetchSuggestions(),
-                                    child: const Text('Generate Suggestions'),
+                              child: Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Column(
+                                    children: [
+                                      Icon(Icons.lightbulb_outline, size: 64, color: Colors.grey[400]),
+                                      const SizedBox(height: 16),
+                                      const Text('No suggestions available'),
+                                      const SizedBox(height: 8),
+                                      const Text('Update your skills in profile for better suggestions'),
+                                      const SizedBox(height: 16),
+                                      ElevatedButton(
+                                        onPressed: () => projectProvider.fetchSuggestions(userSkills: user?.skills),
+                                        child: const Text('Generate Suggestions'),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             );
                           }
 
                           return Column(
                             children: projectProvider.suggestions.take(3).map((suggestion) {
-                              return _buildSuggestionCard(suggestion);
+                              return _buildEnhancedSuggestionCard(suggestion, user?.skills);
                             }).toList(),
                           );
                         },
@@ -289,7 +345,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
                 const SizedBox(height: 32),
 
-                // Recent Projects Section
+                // Enhanced Recent Projects Section
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: _buildRecentProjectsSection(),
@@ -301,6 +357,191 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
         );
       },
+    );
+  }
+
+  // ✅ Enhanced suggestion card with personalization indicators
+  Widget _buildEnhancedSuggestionCard(suggestion, List<String>? userSkills) {
+    final isPersonalized = suggestion.description.contains('Personalized') || 
+                          (suggestion.matchScore > 0.8);
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: isPersonalized ? 4 : 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isPersonalized 
+            ? BorderSide(color: Colors.purple.withOpacity(0.3), width: 1)
+            : BorderSide.none,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isPersonalized 
+                        ? Colors.purple.withOpacity(0.1)
+                        : Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    isPersonalized ? Icons.stars : Icons.auto_awesome, 
+                    color: isPersonalized ? Colors.purple : Colors.blue, 
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              suggestion.project?.title ?? 'Project Suggestion',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          if (isPersonalized)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.purple.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                              ),
+                              child: const Text(
+                                '🎯 FOR YOU',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.purple,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        suggestion.project?.description ?? suggestion.description,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // ✅ Enhanced Skills Chips with match indicators
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: (suggestion.project?.requiredSkills ?? []).take(4).map<Widget>((skill) {
+                final isUserSkill = userSkills?.any((userSkill) => 
+                    userSkill.toLowerCase().contains(skill.toLowerCase()) || 
+                    skill.toLowerCase().contains(userSkill.toLowerCase())) ?? false;
+                
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isUserSkill 
+                        ? Colors.purple.withOpacity(0.15)
+                        : AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: isUserSkill 
+                        ? Border.all(color: Colors.purple.withOpacity(0.3))
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isUserSkill) ...[
+                        const Icon(Icons.check_circle, size: 12, color: Colors.purple),
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        skill,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isUserSkill ? Colors.purple : AppColors.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI Match: ${(suggestion.matchScore * 100).toInt()}%',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (suggestion.timeline != null)
+                      Text(
+                        'Timeline: ${suggestion.timeline}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[500],
+                        ),
+                      ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    // ✅ Remove suggestion button
+                    IconButton(
+                      onPressed: () => _removeSuggestion(suggestion),
+                      icon: const Icon(Icons.close, size: 20),
+                      tooltip: 'Remove suggestion',
+                      color: Colors.grey[600],
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () {
+                        _openProjectDetail(suggestion);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isPersonalized ? Colors.purple : Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      ),
+                      child: const Text('Explore'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -343,125 +584,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildSuggestionCard(suggestion) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.auto_awesome, color: Colors.purple, size: 24),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        suggestion.project?.title ?? 'Project Suggestion',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        suggestion.project?.description ?? suggestion.description,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            
-            // Skills Chips
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: (suggestion.project?.requiredSkills ?? []).take(3).map<Widget>((skill) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    skill,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'AI Match: ${(suggestion.matchScore * 100).toInt()}%',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    _openProjectDetail(suggestion);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  ),
-                  child: const Text('Explore'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
+  // ✅ Enhanced Recent Projects Section with remove functionality
   Widget _buildRecentProjectsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "Recent Projects",
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              "Recent Projects",
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            TextButton(
+              onPressed: () => _tabController.animateTo(1),
+              child: const Text('View All'),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         Consumer<ProjectProvider>(
           builder: (context, projectProvider, child) {
-            final recentProjects = projectProvider.projects.take(2).toList();
+            final recentProjects = projectProvider.projects.take(3).toList();
             
             if (recentProjects.isEmpty) {
               return Card(
@@ -473,9 +620,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       const SizedBox(height: 16),
                       const Text('No projects yet'),
                       const SizedBox(height: 8),
+                      const Text('Join a suggested project or create your own'),
+                      const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: () => _tabController.animateTo(1),
-                        child: const Text('Create First Project'),
+                        child: const Text('Get Started'),
                       ),
                     ],
                   ),
@@ -484,7 +633,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             }
 
             return Column(
-              children: recentProjects.map((project) => _buildRecentProjectCard(project)).toList(),
+              children: recentProjects.map((project) => _buildEnhancedProjectCard(project)).toList(),
             );
           },
         ),
@@ -492,7 +641,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildRecentProjectCard(Project project) {
+  // ✅ Enhanced project card with remove functionality
+  Widget _buildEnhancedProjectCard(Project project) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
@@ -553,10 +703,38 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ],
               ),
             ),
-            IconButton(
-              onPressed: () => _openAIChat(project),
-              icon: const Icon(Icons.chat, color: Colors.purple),
-              tooltip: 'AI Chat',
+            // ✅ Action buttons
+            PopupMenuButton(
+              icon: const Icon(Icons.more_vert),
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'chat',
+                  child: Row(
+                    children: [
+                      Icon(Icons.chat, size: 16),
+                      SizedBox(width: 8),
+                      Text('AI Chat'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'remove',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, size: 16, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('Remove', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+              onSelected: (value) {
+                if (value == 'chat') {
+                  _openAIChat(project);
+                } else if (value == 'remove') {
+                  _removeProject(project);
+                }
+              },
             ),
           ],
         ),
@@ -619,26 +797,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         itemCount: projectProvider.projects.length,
                         itemBuilder: (context, index) {
                           final project = projectProvider.projects[index];
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: ListTile(
-                              leading: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: _getStatusColor(project.status).withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(Icons.work, color: _getStatusColor(project.status)),
-                              ),
-                              title: Text(project.title),
-                              subtitle: Text(project.description, maxLines: 2),
-                              trailing: Text(
-                                project.category ?? 'General',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              onTap: () => _openProjectDetail(project),
-                            ),
-                          );
+                          return _buildEnhancedProjectCard(project);
                         },
                       ),
               ),
@@ -830,7 +989,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return const EnhancedProfileScreen();
   }
 
-  // Helper methods
+  // ✅ Helper methods
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'active':
@@ -890,7 +1049,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
-                  children: project.requiredSkills.map((skill) => Chip(label: Text(skill))).toList(),
+                  children: project.requiredSkills
+                  .map((skill) => Chip(label: Text(skill as String)))
+                  .toList()
+                  .cast<Widget>(),
                 ),
               ],
             ),
@@ -913,6 +1075,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  // ✅ Enhanced action methods
   void _joinProject(Project project) {
     final projectProvider = Provider.of<ProjectProvider>(context, listen: false);
     
@@ -933,5 +1096,54 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
       }
     });
+  }
+
+  // ✅ Remove project functionality
+  void _removeProject(Project project) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Project'),
+        content: Text('Are you sure you want to remove "${project.title}" from your projects?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              final projectProvider = Provider.of<ProjectProvider>(context, listen: false);
+              projectProvider.removeProject(project.id).then((success) {
+                final message = success 
+                    ? 'Project removed successfully'
+                    : 'Failed to remove project';
+                final color = success ? Colors.green : Colors.red;
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(message), backgroundColor: color),
+                );
+              });
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ Remove suggestion functionality
+  void _removeSuggestion(dynamic suggestion) {
+    final projectProvider = Provider.of<ProjectProvider>(context, listen: false);
+    projectProvider.suggestions.remove(suggestion);
+    projectProvider.notifyListeners();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Suggestion removed'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 }
